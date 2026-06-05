@@ -1,0 +1,12 @@
+{
+  "name": "sure-openclaw-render-template",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AlphaClaw wrapper for the Sure external-AI Render Blueprint",
+  "dependencies": {
+    "@chrysb/alphaclaw": "0.9.18"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  }
+}

@@ -1,0 +1,98 @@
+services:
+  - type: keyvalue
+    name: sure-redis
+    plan: starter
+    ipAllowList: []
+
+  - type: web
+    name: sure-web
+    runtime: image
+    image:
+      url: ghcr.io/we-promise/sure:stable
+    plan: starter
+    autoDeploy: false
+    healthCheckPath: /
+    disk:
+      name: sure-storage
+      mountPath: /rails/storage
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sure-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sure-redis
+          property: connectionString
+      - key: SECRET_KEY_BASE
+        generateValue: true
+      - key: SELF_HOSTED
+        value: "true"
+      - key: RAILS_FORCE_SSL
+        value: "false"
+      - key: RAILS_ASSUME_SSL
+        value: "false"
+      - key: OPENAI_ACCESS_TOKEN
+        value: ""
+      - key: MCP_API_TOKEN
+        value: ""
+      - key: MCP_USER_EMAIL
+        value: ""
+      - key: ASSISTANT_TYPE
+        value: ""
+      - key: EXTERNAL_ASSISTANT_URL
+        value: ""
+      - key: EXTERNAL_ASSISTANT_TOKEN
+        value: ""
+
+  - type: worker
+    name: sure-worker
+    runtime: image
+    image:
+      url: ghcr.io/we-promise/sure:stable
+    plan: starter
+    autoDeploy: false
+    dockerCommand: bundle exec sidekiq
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sure-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sure-redis
+          property: connectionString
+      - key: SECRET_KEY_BASE
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: SECRET_KEY_BASE
+      - key: SELF_HOSTED
+        value: "true"
+      - key: RAILS_FORCE_SSL
+        value: "false"
+      - key: RAILS_ASSUME_SSL
+        value: "false"
+      - key: OPENAI_ACCESS_TOKEN
+        value: ""
+      - key: MCP_API_TOKEN
+        value: ""
+      - key: MCP_USER_EMAIL
+        value: ""
+      - key: ASSISTANT_TYPE
+        value: ""
+      - key: EXTERNAL_ASSISTANT_URL
+        value: ""
+      - key: EXTERNAL_ASSISTANT_TOKEN
+        value: ""
+
+databases:
+  - name: sure-postgres
+    plan: starter
+    databaseName: sure_production
+    user: sure_user

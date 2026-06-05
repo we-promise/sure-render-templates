@@ -7,8 +7,8 @@ services:
   - type: web
     name: alphaclaw
     runtime: docker
-    plan: standard
-    autoDeploy: false
+    plan: starter
+    autoDeployTrigger: off
     healthCheckPath: /health
     envVars:
       - key: SETUP_PASSWORD
@@ -17,6 +17,12 @@ services:
         generateValue: true
       - key: WEBHOOK_TOKEN
         generateValue: true
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_WORKSPACE_REPO
+        sync: false
+      - key: WATCHDOG_AUTO_REPAIR
+        value: "true"
       - key: PORT
         value: "3000"
       - key: ALPHACLAW_ROOT_DIR
@@ -32,7 +38,7 @@ services:
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: starter
-    autoDeploy: false
+    autoDeployTrigger: off
     healthCheckPath: /
     disk:
       name: sure-storage
@@ -79,7 +85,7 @@ services:
       - key: ASSISTANT_TYPE
         value: external
       - key: EXTERNAL_ASSISTANT_URL
-        value: http://alphaclaw:3000/api/v1/chat/completions
+        value: http://alphaclaw:18789/v1/chat/completions
       - key: EXTERNAL_ASSISTANT_TOKEN
         fromService:
           type: web
@@ -98,7 +104,7 @@ services:
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: starter
-    autoDeploy: false
+    autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
       - key: DATABASE_URL
@@ -151,7 +157,7 @@ services:
       - key: ASSISTANT_TYPE
         value: external
       - key: EXTERNAL_ASSISTANT_URL
-        value: http://alphaclaw:3000/api/v1/chat/completions
+        value: http://alphaclaw:18789/v1/chat/completions
       - key: EXTERNAL_ASSISTANT_TOKEN
         fromService:
           type: web

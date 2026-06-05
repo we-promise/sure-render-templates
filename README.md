@@ -30,7 +30,7 @@ That script creates or updates the three deployment branches locally, copies the
 
 ## Notes
 
-* All services use `autoDeploy: false`, as recommended for repositories deployed by public Render buttons.
+* All deployable services use `autoDeployTrigger: off`, the current Render Blueprint setting for disabling automatic deploys on public button branches.
 * The templates use Render-managed Postgres and Render Key Value rather than Docker Compose containers for database and Redis-compatible services.
-* The external AI profile shares AlphaClaw's generated `OPENCLAW_GATEWAY_TOKEN` with Sure as `EXTERNAL_ASSISTANT_TOKEN`.
-* For external AI, set `MCP_USER_EMAIL` during Blueprint creation to the email of the Sure user that OpenClaw should access through Sure's MCP endpoint.
+* The external AI profile shares AlphaClaw's generated `OPENCLAW_GATEWAY_TOKEN` with Sure as `EXTERNAL_ASSISTANT_TOKEN` and routes Sure to AlphaClaw's OpenClaw-compatible gateway at `http://alphaclaw:18789/v1/chat/completions`.
+* For external AI, set `MCP_USER_EMAIL` during Blueprint creation to the email of the Sure user that OpenClaw should access through Sure's MCP endpoint. Render also prompts for AlphaClaw's `SETUP_PASSWORD`, `GITHUB_TOKEN`, and `GITHUB_WORKSPACE_REPO` so AlphaClaw can complete its first-run setup without SSH.

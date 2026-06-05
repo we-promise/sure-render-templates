@@ -10,7 +10,7 @@ services:
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: starter
-    autoDeploy: false
+    autoDeployTrigger: off
     healthCheckPath: /
     disk:
       name: sure-storage
@@ -55,7 +55,7 @@ services:
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: starter
-    autoDeploy: false
+    autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
       - key: DATABASE_URL

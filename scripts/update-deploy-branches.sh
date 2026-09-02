@@ -10,7 +10,9 @@ if [[ -z "${CURRENT_BRANCH}" ]]; then
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+trap 'git checkout "${CURRENT_BRANCH}" >/dev/null 2>&1 || true' EXIT
+
+if [[ -n "$(git status --porcelain)" ]]; then
   echo "Commit or stash your working tree changes before updating deploy branches." >&2
   exit 1
 fi
@@ -23,7 +25,7 @@ for branch in "${BRANCHES[@]}"; do
     rm -f "${ROOT_DIR}/Dockerfile" "${ROOT_DIR}/package.json" "${ROOT_DIR}/package-lock.json"
   fi
 
-  git add -A
+  git add -u
   if git diff --cached --quiet; then
     echo "${branch}: no changes to commit"
   else
@@ -32,6 +34,7 @@ for branch in "${BRANCHES[@]}"; do
 done
 
 git checkout "${CURRENT_BRANCH}"
+trap - EXIT
 
 echo "Updated deploy branches: ${BRANCHES[*]}"
-echo "Push them with: git push origin ${BRANCHES[*]}"
+echo "Push them with: git push --force-with-lease origin ${BRANCHES[*]}"

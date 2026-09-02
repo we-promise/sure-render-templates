@@ -33,9 +33,9 @@ services:
       - key: SELF_HOSTED
         value: "true"
       - key: RAILS_FORCE_SSL
-        value: "false"
+        value: "true"
       - key: RAILS_ASSUME_SSL
-        value: "false"
+        value: "true"
       - key: OPENAI_ACCESS_TOKEN
         value: ""
       - key: MCP_API_TOKEN
@@ -75,9 +75,9 @@ services:
       - key: SELF_HOSTED
         value: "true"
       - key: RAILS_FORCE_SSL
-        value: "false"
+        value: "true"
       - key: RAILS_ASSUME_SSL
-        value: "false"
+        value: "true"
       - key: OPENAI_ACCESS_TOKEN
         value: ""
       - key: MCP_API_TOKEN
@@ -96,3 +96,4 @@ databases:
     plan: starter
     databaseName: sure_production
     user: sure_user
+    postgresMajorVersion: "16"

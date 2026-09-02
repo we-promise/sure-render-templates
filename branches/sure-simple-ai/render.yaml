@@ -33,9 +33,9 @@ services:
       - key: SELF_HOSTED
         value: "true"
       - key: RAILS_FORCE_SSL
-        value: "false"
+        value: "true"
       - key: RAILS_ASSUME_SSL
-        value: "false"
+        value: "true"
       - key: AI_DEBUG_MODE
         value: "false"
       - key: OPENAI_ACCESS_TOKEN
@@ -87,9 +87,9 @@ services:
       - key: SELF_HOSTED
         value: "true"
       - key: RAILS_FORCE_SSL
-        value: "false"
+        value: "true"
       - key: RAILS_ASSUME_SSL
-        value: "false"
+        value: "true"
       - key: AI_DEBUG_MODE
         value: "false"
       - key: OPENAI_ACCESS_TOKEN

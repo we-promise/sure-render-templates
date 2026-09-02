@@ -1,0 +1,19 @@
+{
+  "name": "sure-openclaw-render-template",
+  "version": "2.0.0",
+  "private": true,
+  "description": "OpenClaw on Render for Sure external AI — one-click deploy, powered by @chrysb/alphaclaw",
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:stop": "docker compose down",
+    "dev:clean": "docker compose down -v",
+    "dev:logs": "docker compose logs -f",
+    "dev:shell": "docker compose exec alphaclaw bash"
+  },
+  "dependencies": {
+    "@chrysb/alphaclaw": "0.9.18"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  }
+}

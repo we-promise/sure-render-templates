@@ -13,7 +13,7 @@ services:
     # or after deploy set each service's image URL to
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     plan: starter
     autoDeployTrigger: off
     healthCheckPath: /
@@ -67,7 +67,7 @@ services:
     # or after deploy set each service's image URL to
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     plan: starter
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq

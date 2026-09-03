@@ -45,8 +45,20 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
+      - key: AI_DEBUG_MODE
+        value: "false"
       - key: OPENAI_ACCESS_TOKEN
-        value: ""
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_URI_BASE
+        value: https://api.openai.com/v1
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
       - key: MCP_API_TOKEN
         value: ""
       - key: MCP_USER_EMAIL
@@ -96,8 +108,23 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
+      - key: AI_DEBUG_MODE
+        value: "false"
       - key: OPENAI_ACCESS_TOKEN
-        value: ""
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: OPENAI_ACCESS_TOKEN
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_URI_BASE
+        value: https://api.openai.com/v1
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
       - key: MCP_API_TOKEN
         value: ""
       - key: MCP_USER_EMAIL

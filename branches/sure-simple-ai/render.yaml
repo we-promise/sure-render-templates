@@ -9,7 +9,7 @@ services:
     runtime: image
     image:
       url: ghcr.io/we-promise/sure:stable
-    plan: starter
+    plan: standard
     autoDeployTrigger: off
     healthCheckPath: /
     disk:
@@ -66,7 +66,7 @@ services:
     runtime: image
     image:
       url: ghcr.io/we-promise/sure:stable
-    plan: starter
+    plan: standard
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
@@ -120,7 +120,7 @@ services:
 
 databases:
   - name: sure-postgres
-    plan: basic-256mb
+    plan: basic-1gb
     databaseName: sure_production
     user: sure_user
-    postgresMajorVersion: "16"
+    postgresMajorVersion: "18"

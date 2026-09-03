@@ -33,7 +33,7 @@ for flavor in "${FLAVORS[@]}"; do
 
     git checkout -B "${branch}" "${CURRENT_BRANCH}"
     cp "${ROOT_DIR}/branches/${flavor}/render.yaml" "${ROOT_DIR}/render.yaml"
-    sed -i.bak -E "s#(ghcr\.io/we-promise/sure:)(stable|latest)#\1${tag}#g" "${ROOT_DIR}/render.yaml"
+    sed -i.bak -E "s#(url: ghcr\.io/we-promise/sure:)(stable|latest)#\1${tag}#g" "${ROOT_DIR}/render.yaml"
     rm -f "${ROOT_DIR}/render.yaml.bak"
 
     if [[ "${flavor}" != "sure-external-ai" ]]; then

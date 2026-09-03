@@ -24,7 +24,7 @@ for f in "${ROOT_DIR}"/branches/*/render.yaml; do
 done
 
 for f in "${FILES[@]}"; do
-  sed -i.bak -E "s#(ghcr\.io/we-promise/sure:)(stable|latest)#\1${TAG}#g" "${f}"
+  sed -i.bak -E "s#(url: ghcr\.io/we-promise/sure:)(stable|latest)#\1${TAG}#g" "${f}"
   rm -f "${f}.bak"
   echo "${f#"${ROOT_DIR}"/}:"
   grep -n "ghcr.io/we-promise/sure" "${f}" | sed 's/^/  /'

@@ -11,7 +11,7 @@ services:
     # Render Blueprint files cannot take deploy-time inputs, so to deploy
     # "latest" instead, run scripts/use-image-tag.sh latest before deploying,
     # or after deploy set each service's image URL to
-    # ghcr.io/we-promise/sure:stable in the Render Dashboard and redeploy.
+    # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: standard
@@ -61,7 +61,7 @@ services:
     # Render Blueprint files cannot take deploy-time inputs, so to deploy
     # "latest" instead, run scripts/use-image-tag.sh latest before deploying,
     # or after deploy set each service's image URL to
-    # ghcr.io/we-promise/sure:stable in the Render Dashboard and redeploy.
+    # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:stable
     plan: standard

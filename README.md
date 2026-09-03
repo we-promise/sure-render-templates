@@ -1,6 +1,6 @@
 # Sure Render Templates
 
-One-click Render Blueprint templates for self-hosting [Sure](https://github.com/we-promise/sure) with three deployment profiles.
+One-click Render Blueprint templates for self-hosting [Sure](https://github.com/we-promise/sure) with six deployment profiles.
 
 ## Deployment options
 
@@ -21,12 +21,14 @@ You can also switch an existing deployment without redeploying the Blueprint: in
 ## Branch layout
 
 ```text
-sure-no-ai                  -> branches/sure-no-ai/render.yaml      (stable)
-sure-no-ai-latest           -> branches/sure-no-ai/render.yaml      (latest)
-sure-simple-ai              -> branches/sure-simple-ai/render.yaml  (stable)
-sure-simple-ai-latest       -> branches/sure-simple-ai/render.yaml  (latest)
-sure-external-ai            -> branches/sure-external-ai/render.yaml + Dockerfile + package.json (stable)
-sure-external-ai-latest     -> branches/sure-external-ai/render.yaml + Dockerfile + package.json (latest)
+stable >
+  sure-no-ai                  -> branches/sure-no-ai/render.yaml
+  sure-simple-ai              -> branches/sure-simple-ai/render.yaml
+  sure-external-ai            -> branches/sure-external-ai/render.yaml + Dockerfile + package.json
+latest >
+  sure-no-ai-latest           -> branches/sure-no-ai-latest/render.yaml
+  sure-simple-ai-latest       -> branches/sure-simple-ai-latest/render.yaml
+  sure-external-ai-latest     -> branches/sure-external-ai-latest/render.yaml + Dockerfile + package.json
 ```
 
 To materialize the deploy branches from this working branch, run:

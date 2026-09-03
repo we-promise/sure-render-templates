@@ -18,7 +18,7 @@ Each flavor deploys from two branches: the plain branch name (for example `sure-
 
 You can also switch an existing deployment without redeploying the Blueprint: in the Render Dashboard open each service (`sure-web` and `sure-worker`), set the image URL to the tag you want, and trigger a manual deploy. Note that a later Blueprint sync resets the tag to whatever the deployed branch pins. On a fork or clone, `scripts/use-image-tag.sh [stable|latest]` rewrites the tag in every Blueprint file.
 
-## Branch layout## Branch layout
+## Branch layout
 
 ```text
 sure-no-ai                  -> branches/sure-no-ai/render.yaml      (stable)

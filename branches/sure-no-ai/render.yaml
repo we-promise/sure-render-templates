@@ -7,8 +7,13 @@ services:
   - type: web
     name: sure-web
     runtime: image
+    # Sure image tag: "stable" (default, recommended) or "latest" (newest build).
+    # Render Blueprint files cannot take deploy-time inputs, so to deploy
+    # "latest" instead, run scripts/use-image-tag.sh latest before deploying,
+    # or after deploy set each service's image URL to
+    # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     plan: standard
     autoDeployTrigger: off
     healthCheckPath: /
@@ -52,8 +57,13 @@ services:
   - type: worker
     name: sure-worker
     runtime: image
+    # Sure image tag: "stable" (default, recommended) or "latest" (newest build).
+    # Render Blueprint files cannot take deploy-time inputs, so to deploy
+    # "latest" instead, run scripts/use-image-tag.sh latest before deploying,
+    # or after deploy set each service's image URL to
+    # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     plan: standard
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq

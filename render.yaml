@@ -5,6 +5,41 @@ services:
     ipAllowList: []
 
   - type: web
+    name: alphaclaw
+    runtime: docker
+    plan: starter
+    autoDeployTrigger: off
+    healthCheckPath: /health
+    envVars:
+      - key: SETUP_PASSWORD
+        sync: false
+      - key: OPENCLAW_GATEWAY_TOKEN
+        generateValue: true
+      - key: WEBHOOK_TOKEN
+        generateValue: true
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_WORKSPACE_REPO
+        sync: false
+      - key: WATCHDOG_AUTO_REPAIR
+        value: "true"
+      - key: PORT
+        value: "3000"
+      - key: ALPHACLAW_ROOT_DIR
+        value: /data
+      - key: REMOTE_MCP_URL
+        value: http://sure-web:3000/mcp
+      - key: REMOTE_MCP_API_TOKEN
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: MCP_API_TOKEN
+    disk:
+      name: openclaw-data
+      mountPath: /data
+      sizeGB: 10
+
+  - type: web
     name: sure-web
     runtime: image
     # Sure image tag: "stable" (default, recommended) or "latest" (newest build).
@@ -45,17 +80,38 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
+      - key: AI_DEBUG_MODE
+        value: "false"
       - key: OPENAI_ACCESS_TOKEN
-        value: ""
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_URI_BASE
+        value: https://api.openai.com/v1
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
       - key: MCP_API_TOKEN
-        value: ""
+        generateValue: true
       - key: MCP_USER_EMAIL
-        value: ""
+        sync: false
       - key: ASSISTANT_TYPE
-        value: ""
+        value: external
       - key: EXTERNAL_ASSISTANT_URL
-        value: ""
+        value: http://alphaclaw:3000/v1/chat/completions
       - key: EXTERNAL_ASSISTANT_TOKEN
+        fromService:
+          type: web
+          name: alphaclaw
+          envVarKey: OPENCLAW_GATEWAY_TOKEN
+      - key: EXTERNAL_ASSISTANT_AGENT_ID
+        value: main
+      - key: EXTERNAL_ASSISTANT_SESSION_KEY
+        value: agent:main:main
+      - key: EXTERNAL_ASSISTANT_ALLOWED_EMAILS
         value: ""
 
   - type: worker
@@ -96,17 +152,47 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
+      - key: AI_DEBUG_MODE
+        value: "false"
       - key: OPENAI_ACCESS_TOKEN
-        value: ""
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: OPENAI_ACCESS_TOKEN
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_URI_BASE
+        value: https://api.openai.com/v1
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
       - key: MCP_API_TOKEN
-        value: ""
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: MCP_API_TOKEN
       - key: MCP_USER_EMAIL
-        value: ""
+        fromService:
+          type: web
+          name: sure-web
+          envVarKey: MCP_USER_EMAIL
       - key: ASSISTANT_TYPE
-        value: ""
+        value: external
       - key: EXTERNAL_ASSISTANT_URL
-        value: ""
+        value: http://alphaclaw:3000/v1/chat/completions
       - key: EXTERNAL_ASSISTANT_TOKEN
+        fromService:
+          type: web
+          name: alphaclaw
+          envVarKey: OPENCLAW_GATEWAY_TOKEN
+      - key: EXTERNAL_ASSISTANT_AGENT_ID
+        value: main
+      - key: EXTERNAL_ASSISTANT_SESSION_KEY
+        value: agent:main:main
+      - key: EXTERNAL_ASSISTANT_ALLOWED_EMAILS
         value: ""
 
 databases:

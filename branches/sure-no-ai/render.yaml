@@ -14,7 +14,7 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:latest
-    plan: standard
+    plan: starter
     autoDeployTrigger: off
     healthCheckPath: /
     disk:
@@ -37,6 +37,10 @@ services:
         generateValue: true
       - key: SELF_HOSTED
         value: "true"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: RAILS_MAX_THREADS
+        value: "3"
       - key: RAILS_FORCE_SSL
         value: "true"
       - key: RAILS_ASSUME_SSL
@@ -64,7 +68,7 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:latest
-    plan: standard
+    plan: starter
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
@@ -84,6 +88,10 @@ services:
           envVarKey: SECRET_KEY_BASE
       - key: SELF_HOSTED
         value: "true"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: RAILS_MAX_THREADS
+        value: "3"
       - key: RAILS_FORCE_SSL
         value: "true"
       - key: RAILS_ASSUME_SSL

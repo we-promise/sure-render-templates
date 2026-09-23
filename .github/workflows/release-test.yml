@@ -1,0 +1,114 @@
+name: release test
+run-name: release test ${{ inputs.channel }} ${{ inputs.sure_tag }}
+
+# Started by "release watch" for each new we-promise/sure build (or by hand).
+#   stable:  local e2e + Render e2e on the stable deploy branches
+#   latest:  local e2e + Render e2e on the -latest deploy branches (alphas)
+#   nightly: local e2e only, sure-no-ai's Blueprint running the exact
+#            :nightly digest
+# Render e2e creates billable resources (~$0.03-0.07/run). Kill switch: set
+# the repo variable RENDER_E2E_ON_RELEASE to "false". Without the
+# RENDER_API_KEY secret the Render jobs skip with a notice.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Which image channel moved
+        type: choice
+        options: [stable, latest, nightly]
+        required: true
+      sure_tag:
+        description: 'Release tag (e.g. v0.7.4) or, for nightly, the image digest (sha256:...)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan (${{ inputs.channel }} ${{ inputs.sure_tag }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      branches: ${{ steps.plan.outputs.branches }}
+      image: ${{ steps.plan.outputs.image }}
+      render: ${{ steps.plan.outputs.render }}
+    steps:
+      - id: plan
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          SURE_TAG: ${{ inputs.sure_tag }}
+          RENDER_ON_RELEASE: ${{ vars.RENDER_E2E_ON_RELEASE }}
+        run: |
+          set -euo pipefail
+          img=ghcr.io/we-promise/sure
+          image=""
+          render=true
+          # First slice: no-AI only. Add the other deploy branches as their slices land.
+          case "$CHANNEL" in
+            stable) branches='["sure-no-ai"]' ;;
+            latest) branches='["sure-no-ai-latest"]' ;;
+            nightly)
+              branches='["sure-no-ai"]'
+              [[ "$SURE_TAG" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::nightly needs a sha256 digest, got $SURE_TAG"; exit 1; }
+              image="$img@$SURE_TAG"
+              render=false ;;
+            *) echo "::error::unknown channel $CHANNEL"; exit 1 ;;
+          esac
+          if [ "${RENDER_ON_RELEASE:-}" = false ]; then render=false; fi
+          {
+            echo "branches=$branches"
+            echo "image=$image"
+            echo "render=$render"
+          } >> "$GITHUB_OUTPUT"
+          echo "Render e2e: $render"
+          # The deploy branches pin :stable / :latest. Say which build that is now.
+          if [ "$CHANNEL" != nightly ]; then
+            version="${SURE_TAG#v}"
+            moving="$(docker buildx imagetools inspect "$img:$CHANNEL" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            pinned="$(docker buildx imagetools inspect "$img:$version" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            if [ "$moving" = "$pinned" ]; then
+              echo "::notice::$img:$CHANNEL is $SURE_TAG ($moving)"
+            else
+              echo "::warning::$img:$CHANNEL ($moving) is no longer $SURE_TAG ($pinned); testing what :$CHANNEL points to now"
+            fi
+          fi
+
+  e2e-local:
+    name: local e2e (${{ matrix.branch }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.plan.outputs.branches) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch deploy branches
+        run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Install bats + PyYAML
+        run: sudo apt-get update && sudo apt-get install -y bats python3-yaml
+      - name: Local e2e
+        env:
+          E2E_BRANCH: ${{ matrix.branch }}
+          E2E_IMAGE: ${{ needs.plan.outputs.image }}
+          E2E_LOG_FILE: ${{ runner.temp }}/e2e-logs.txt
+        run: bats tests/e2e | tee "$RUNNER_TEMP/e2e.tap"; exit "${PIPESTATUS[0]}"
+      - name: Annotate failures
+        if: failure()
+        run: tests/lib/tap-annotate.sh "$RUNNER_TEMP/e2e.tap" "$RUNNER_TEMP/e2e-logs.txt"
+
+  render:
+    name: render e2e (${{ matrix.branch }})
+    needs: [plan, e2e-local]
+    if: needs.plan.outputs.render == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.plan.outputs.branches) }}
+    uses: ./.github/workflows/render-e2e.yml
+    with:
+      branch: ${{ matrix.branch }}
+      confirm_cost: 'yes'
+    secrets: inherit

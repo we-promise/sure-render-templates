@@ -6,6 +6,8 @@
 #
 #   E2E_BRANCH   deploy branch to test (default: sure-no-ai)
 #   E2E_WEB_PORT host port for sure-web (default: 3000)
+#   E2E_IMAGE    optional Sure image to run instead of the branch's pin, e.g.
+#                ghcr.io/we-promise/sure@sha256:... for a nightly build
 #
 # Needs docker (with compose v2), curl, python3 + PyYAML, and the deploy
 # branch fetched into refs/remotes/origin.
@@ -20,6 +22,9 @@ setup_file() {
   export E2E_DIR="$(mktemp -d)"
   export COMPOSE_PROJECT_NAME="sure-e2e-$$"
   git -C "${REPO_ROOT}" show "$(remote_ref "$E2E_BRANCH"):render.yaml" > "${E2E_DIR}/render.yaml"
+  if [ -n "${E2E_IMAGE:-}" ]; then
+    sed -i -E "s#(url: )ghcr\.io/we-promise/sure[:@][^[:space:]]+#\1${E2E_IMAGE}#" "${E2E_DIR}/render.yaml"
+  fi
   python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${E2E_DIR}/render.yaml" > "${E2E_DIR}/compose.yaml"
   export DC="docker compose -f ${E2E_DIR}/compose.yaml"
   $DC up -d --quiet-pull
@@ -47,8 +52,8 @@ teardown_file() {
 
 redis() { $DC exec -T redis redis-cli "$@"; }
 
-@test "compose runs the image tag the branch pins" {
-  want="ghcr.io/we-promise/sure:$(tag_of "$E2E_BRANCH")"
+@test "compose runs the image tag the branch pins (or E2E_IMAGE)" {
+  want="${E2E_IMAGE:-ghcr.io/we-promise/sure:$(tag_of "$E2E_BRANCH")}"
   run bash -c "$DC config --images | sort -u | grep we-promise/sure"
   [ "$output" = "$want" ]
 }

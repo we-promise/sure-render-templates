@@ -2,26 +2,56 @@ name: render e2e
 
 # Creates real Render resources in the Sure workspace. COSTS MONEY while it
 # runs: for sure-no-ai, $45.50/mo prorated per second (~$0.063/h), so a
-# 30-60 minute run is roughly $0.03-0.07. Manual only, never on push/PR.
+# 30-60 minute run is roughly $0.03-0.07. Never on push/PR: manual, or called
+# by "release test" for each new stable or alpha release (kill switch: repo
+# variable RENDER_E2E_ON_RELEASE=false). If the RENDER_API_KEY secret is
+# missing it skips (with a notice) instead of failing.
 on:
   workflow_dispatch:
     inputs:
       branch:
         description: Deploy branch to test
         type: choice
-        options: [sure-no-ai]
+        options: [sure-no-ai, sure-no-ai-latest]
         default: sure-no-ai
       confirm_cost:
         description: 'Type "yes" to confirm this run creates billable Render resources (~$0.063/h for sure-no-ai)'
         required: true
-
-concurrency:
-  group: render-e2e
-  cancel-in-progress: false
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        default: sure-no-ai
+      confirm_cost:
+        type: string
+        required: true
+    secrets:
+      RENDER_API_KEY:
+        required: false
 
 jobs:
+  key:
+    name: check RENDER_API_KEY
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      present: ${{ steps.k.outputs.present }}
+    steps:
+      - id: k
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          if [ -n "$RENDER_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RENDER_API_KEY secret is not set; skipping the Render e2e"
+          fi
+
   validate:
     name: validate all Blueprints
+    needs: key
+    if: needs.key.outputs.present == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -38,6 +68,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    concurrency:
+      group: render-e2e-${{ inputs.branch }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'

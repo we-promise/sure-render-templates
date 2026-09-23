@@ -29,15 +29,19 @@ jobs:
           done
 
   e2e-local:
-    name: local e2e (${{ matrix.branch }})
+    name: local e2e (${{ matrix.branch }}${{ matrix.image && ' @ nightly' || '' }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # First slice: stable, no AI. Add the other deploy branches here as
-        # their slices land.
-        branch: [sure-no-ai]
+        # First slice: no AI on stable, latest and nightly. Add the other
+        # deploy branches as their slices land.
+        include:
+          - branch: sure-no-ai
+          - branch: sure-no-ai-latest
+          - branch: sure-no-ai
+            image: ghcr.io/we-promise/sure:nightly
     steps:
       - uses: actions/checkout@v4
       - name: Fetch deploy branches
@@ -47,6 +51,7 @@ jobs:
       - name: Local e2e
         env:
           E2E_BRANCH: ${{ matrix.branch }}
+          E2E_IMAGE: ${{ matrix.image }}
           E2E_LOG_FILE: ${{ runner.temp }}/e2e-logs.txt
         run: bats tests/e2e | tee "$RUNNER_TEMP/e2e.tap"; exit "${PIPESTATUS[0]}"
       - name: Annotate failures

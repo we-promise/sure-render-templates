@@ -37,7 +37,9 @@ setup_file() {
 
 teardown_file() {
   if [ -n "${DC:-}" ]; then
-    if [ -n "${BATS_SUITE_TEST_FAILED:-}${E2E_KEEP_LOGS:-}" ]; then $DC logs --tail 120 >&3 || true; fi
+    # Always keep a log tail for CI annotations / debugging.
+    $DC ps -a > "${E2E_LOG_FILE:-/tmp/sure-e2e-logs.txt}" 2>&1 || true
+    $DC logs --no-color --tail 120 >> "${E2E_LOG_FILE:-/tmp/sure-e2e-logs.txt}" 2>&1 || true
     $DC down -v --remove-orphans >/dev/null 2>&1 || true
   fi
   rm -rf "${E2E_DIR:-/nonexistent}"

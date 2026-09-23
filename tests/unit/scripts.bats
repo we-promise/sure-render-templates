@@ -4,6 +4,9 @@
 load ../lib/common
 
 setup() {
+  # CI runners have no git identity; the scripts under test commit.
+  export GIT_AUTHOR_NAME=tests GIT_AUTHOR_EMAIL=tests@example.com
+  export GIT_COMMITTER_NAME=tests GIT_COMMITTER_EMAIL=tests@example.com
   WORK="$(mktemp -d)"
   git clone -q "${REPO_ROOT}" "${WORK}/repo"
   cd "${WORK}/repo"

@@ -17,9 +17,16 @@ jobs:
       - name: Install bats + shellcheck + PyYAML
         run: sudo apt-get update && sudo apt-get install -y bats shellcheck python3-yaml
       - name: Unit
-        run: bats tests/unit
+        run: bats tests/unit | tee "$RUNNER_TEMP/unit.tap"; exit "${PIPESTATUS[0]}"
       - name: Contract
-        run: bats tests/contract
+        if: always()
+        run: bats tests/contract | tee "$RUNNER_TEMP/contract.tap"; exit "${PIPESTATUS[0]}"
+      - name: Annotate failures
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/unit.tap "$RUNNER_TEMP"/contract.tap; do
+            [ -f "$f" ] && tests/lib/tap-annotate.sh "$f"
+          done
 
   e2e-local:
     name: local e2e (${{ matrix.branch }})
@@ -40,4 +47,8 @@ jobs:
       - name: Local e2e
         env:
           E2E_BRANCH: ${{ matrix.branch }}
-        run: bats tests/e2e
+          E2E_LOG_FILE: ${{ runner.temp }}/e2e-logs.txt
+        run: bats tests/e2e | tee "$RUNNER_TEMP/e2e.tap"; exit "${PIPESTATUS[0]}"
+      - name: Annotate failures
+        if: failure()
+        run: tests/lib/tap-annotate.sh "$RUNNER_TEMP/e2e.tap" "$RUNNER_TEMP/e2e-logs.txt"

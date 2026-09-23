@@ -29,5 +29,5 @@ wf() { cat "${REPO_ROOT}/.github/workflows/$1"; }
 
 @test "shell scripts pass shellcheck" {
   command -v shellcheck >/dev/null || { echo "shellcheck not installed"; false; }
-  shellcheck "${REPO_ROOT}"/scripts/*.sh "${REPO_ROOT}"/tests/render/*.sh "${REPO_ROOT}"/tests/run.sh
+  shellcheck "${REPO_ROOT}"/scripts/*.sh "${REPO_ROOT}"/tests/render/*.sh "${REPO_ROOT}"/tests/run.sh "${REPO_ROOT}"/tests/lib/tap-annotate.sh
 }

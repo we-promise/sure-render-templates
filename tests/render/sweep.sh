@@ -8,10 +8,12 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/tests/render/lib.sh"
 
 cutoff="$(date -u -d "-${SWEEP_MAX_AGE_MIN:-120} minutes" +%Y-%m-%dT%H:%M:%SZ)"
+# Only the workspace e2e.sh creates resources in (same resolution rules).
+owner="$(owner_id)"
 found=0
 sweep() { # sweep <list-path> <jq-object-key> <delete-prefix>
   local rows
-  rows="$(api GET "$1?limit=100" | jq -r --arg k "$2" --arg c "$cutoff" --arg re "$E2E_NAME_RE" \
+  rows="$(api GET "$1?limit=100&ownerId=${owner}" | jq -r --arg k "$2" --arg c "$cutoff" --arg re "$E2E_NAME_RE" \
     '.[][$k] | select((.name | test($re)) and .createdAt < $c) | .id + " " + .name')"
   while read -r id name; do
     [ -n "$id" ] || continue

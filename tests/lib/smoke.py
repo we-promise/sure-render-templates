@@ -205,8 +205,8 @@ def main():
     ok(f"sign-up as {email} -> {status} {urllib.parse.urlparse(loc).path}")
 
     status, loc, _ = anon.request("GET", "/")
-    if is_auth_page(loc):
-        fail("signed-up session is not authenticated (redirected to an auth page)")
+    if is_auth_page(loc) or not (200 <= status < 400):
+        fail(f"signed-up session is not working: GET / -> {status} {loc!r}")
     ok(f"signed-up session is authenticated (GET / -> {status} {urllib.parse.urlparse(loc).path or ''})")
 
     fresh = Client(base, proto)
@@ -221,8 +221,8 @@ def main():
     if status not in (302, 303) or is_auth_page(loc):
         fail(f"log-in returned {status} -> {loc!r}")
     status, loc, _ = fresh.request("GET", "/")
-    if is_auth_page(loc):
-        fail("logged-in session is not authenticated")
+    if is_auth_page(loc) or not (200 <= status < 400):
+        fail(f"logged-in session is not working: GET / -> {status} {loc!r}")
     ok("log-in with the new account works in a fresh session")
 
     new_user_flow(fresh)

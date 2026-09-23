@@ -112,7 +112,7 @@ def compose(path):
             volumes[svc["disk"]["name"]] = {}
             c["volumes"] = [f"{svc['disk']['name']}:{svc['disk']['mountPath']}"]
         if svc["type"] == "web":
-            port = c["environment"].get("PORT", "10000")
+            port = c["environment"].setdefault("PORT", "10000")
             c["ports"] = [f"127.0.0.1:${{E2E_WEB_PORT:-3000}}:{port}"]
         services[name] = c
     doc = {"services": services}

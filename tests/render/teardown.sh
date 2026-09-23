@@ -23,15 +23,18 @@ fi
 
 # Leftover check by name, independent of the state file.
 sleep 5
-left="$( {
-  api GET '/services?limit=100' | jq -r '.[].service.name'
-  api GET '/postgres?limit=100' | jq -r '.[].postgres.name'
-  api GET '/key-value?limit=100' | jq -r '.[].keyValue.name'
-} | grep -E -- "-${SUFFIX}\$" || true)"
+# Each list call must succeed; a failed call must not read as "nothing left".
+names=""
+for pair in services:service postgres:postgres key-value:keyValue; do
+  path="${pair%%:*}"; key="${pair##*:}"
+  out="$(api GET "/${path}?limit=100")" || { log "could not list /$path to verify teardown"; rc=1; continue; }
+  names+="$(jq -r --arg k "$key" '.[][$k].name' <<<"$out")"$'\n'
+done
+left="$(grep -E -- "-${SUFFIX}\$" <<<"$names" || true)"
 if [ -n "$left" ]; then
   log "LEFTOVER resources with suffix $SUFFIX (still billing!): $left"
   rc=1
-else
+elif [ "$rc" = 0 ]; then
   log "teardown verified: nothing named *-$SUFFIX remains"
   rm -f "$STATE"
 fi

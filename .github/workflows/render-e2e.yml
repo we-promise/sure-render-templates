@@ -29,6 +29,9 @@ on:
       RENDER_API_KEY:
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   key:
     name: check RENDER_API_KEY

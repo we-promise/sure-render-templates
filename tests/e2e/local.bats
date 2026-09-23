@@ -65,9 +65,13 @@ redis() { $DC exec -T redis redis-cli "$@"; }
   [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
-@test "plain http is redirected to https (RAILS_FORCE_SSL from the Blueprint is live)" {
-  run curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://127.0.0.1:${E2E_WEB_PORT}/"
-  [[ "$output" == 30[18]\ https://* ]] || { echo "$output"; false; }
+@test "app runs as behind a TLS proxy: https links and HSTS even on plain http" {
+  # Sure defaults RAILS_ASSUME_SSL=true and RAILS_FORCE_SSL=true (Render terminates
+  # TLS), so plain http is not redirected; it is treated as https instead.
+  run curl -s -D - -o /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/"
+  grep -qi '^strict-transport-security:' <<<"$output" || { echo "$output"; false; }
+  loc="$(grep -i '^location:' <<<"$output" | tr -d '\r' | awk '{print $2}')"
+  [ -z "$loc" ] || [[ "$loc" == https://* ]] || { echo "$output"; false; }
 }
 
 @test "smoke: health, sign up, log in (through the Render-style proxy header)" {

@@ -79,7 +79,7 @@ redis() { $DC exec -T redis redis-cli "$@"; }
   [ -z "$loc" ] || [[ "$loc" == https://* ]] || { echo "$output"; false; }
 }
 
-@test "smoke: health, sign up, log in (through the Render-style proxy header)" {
+@test "smoke: sign up, log in, onboarding, account + expense, worker sync (Render-style proxy header)" {
   run python3 "${REPO_ROOT}/tests/lib/smoke.py" "http://127.0.0.1:${E2E_WEB_PORT}" --forwarded-proto https
   echo "$output"
   [ "$status" -eq 0 ]
@@ -105,4 +105,15 @@ redis() { $DC exec -T redis redis-cli "$@"; }
     (( SECONDS < deadline )) || { echo "stat:processed stayed at $now"; $DC logs --tail 40 sure-worker; false; }
     sleep 3
   done
+}
+
+@test "demo data loads the README way and the demo user sees it" {
+  # README: "Optionally, load demo data: rake demo_data:default", then log in as
+  # user@example.com / Password1!. Run inside the web container like a self-hoster would.
+  run timeout 1200 $DC exec -T sure-web bundle exec rake demo_data:default
+  [ "$status" -eq 0 ] || { echo "$output" | tail -40; false; }
+  echo "$output" | tail -8
+  run python3 "${REPO_ROOT}/tests/lib/smoke.py" "http://127.0.0.1:${E2E_WEB_PORT}" --forwarded-proto https --demo
+  echo "$output"
+  [ "$status" -eq 0 ]
 }

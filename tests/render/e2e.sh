@@ -90,6 +90,7 @@ while IFS= read -r row; do
   deploy_of[$sid]="$(jq -r '.deployId // empty' <<<"$resp")"
   if [ "$(jq -r .type <<<"$row")" = "web_service" ]; then
     web_url="$(jq -r '.service.serviceDetails.url' <<<"$resp")"
+    web_sid="$sid"
   fi
   log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid)"
 done < <(jq -c '.services[]' "$work/plan.json")
@@ -113,6 +114,36 @@ for sid in "${!deploy_of[@]}"; do
 done
 
 [ -n "$web_url" ] || die "no web service URL"
+# run_job <service-id> <label> <command> [timeout-s]: a Render one-off job on the
+# service's image, env and plan (billed per second while it runs).
+run_job() {
+  local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline
+  jid="$(api POST "/services/$sid/jobs" "$(jq -nc --arg c "$cmd" '{startCommand: $c}')" | jq -r '.id')"
+  if [ -z "$jid" ] || [ "$jid" = null ]; then die "could not start job: $label"; fi
+  log "job $label ($jid) started"
+  deadline=$((SECONDS + timeout))
+  while :; do
+    st="$(api GET "/services/$sid/jobs/$jid" | jq -r '.status')"
+    case "$st" in
+      succeeded) log "job $label succeeded"; return 0 ;;
+      failed|canceled) die "job $label ended $st (see the job's logs in the Render dashboard)" ;;
+    esac
+    (( SECONDS < deadline )) || { api POST "/services/$sid/jobs/$jid/cancel" >/dev/null || true; die "job $label still '$st' after ${timeout}s"; }
+    sleep 10
+  done
+}
+
+[ -n "${web_sid:-}" ] || die "no web service id"
+run_job "$web_sid" "migrations applied" \
+  "bin/rails runner 'exit(ActiveRecord::Base.connection_pool.migration_context.needs_migration? ? 1 : 0)'"
+
 log "smoke against $web_url"
 python3 "$ROOT/tests/lib/smoke.py" "$web_url"
+
+run_job "$web_sid" "Sidekiq worker registered" \
+  "bin/rails runner 'require \"sidekiq/api\"; exit(Sidekiq::ProcessSet.new.size >= 1 ? 0 : 1)'"
+
+# Demo data the README way, then the demo user must see it.
+run_job "$web_sid" "rake demo_data:default" "bundle exec rake demo_data:default" 1500
+python3 "$ROOT/tests/lib/smoke.py" "$web_url" --demo
 log "PASS $BRANCH on Render"

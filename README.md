@@ -39,6 +39,10 @@ To materialize the deploy branches from this working branch, run:
 
 That script creates or updates the six deployment branches locally (stable and latest per flavor), copies the relevant Blueprint to root-level `render.yaml`, rewrites the image tag for the `-latest` branches, commits each branch, and returns you to your original branch. Push those branches to GitHub so the README buttons can deploy them.
 
+## Tests
+
+See [tests/README.md](tests/README.md): unit, contract (including a deploy-branch drift check) and a local docker e2e run on every push and PR for free. A real Render e2e runs manually and is billable (about $0.063/hour for sure-no-ai while it runs).
+
 ## Notes
 
 * All deployable services use `autoDeployTrigger: off`, the current Render Blueprint setting for disabling automatic deploys on public button branches.

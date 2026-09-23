@@ -1,0 +1,25 @@
+name: render sweep
+
+# Deletes Render e2e resources (named *-e2e-<run>) older than 2 hours, in case
+# a run's teardown never happened. Reads and deletes only; creates nothing.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sweep
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+        run: |
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "::notice::RENDER_API_KEY not set; no e2e resources can exist to sweep."
+            exit 0
+          fi
+          tests/render/sweep.sh

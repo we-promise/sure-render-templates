@@ -1,0 +1,60 @@
+name: render e2e
+
+# Creates real Render resources in the Sure workspace. COSTS MONEY while it
+# runs: for sure-no-ai, $45.50/mo prorated per second (~$0.063/h), so a
+# 30-60 minute run is roughly $0.03-0.07. Manual only, never on push/PR.
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Deploy branch to test
+        type: choice
+        options: [sure-no-ai]
+        default: sure-no-ai
+      confirm_cost:
+        description: 'Type "yes" to confirm this run creates billable Render resources (~$0.063/h for sure-no-ai)'
+        required: true
+
+concurrency:
+  group: render-e2e
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate all Blueprints
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Render Blueprint validate API (creates nothing)
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+        run: tests/render/validate.sh
+
+  e2e:
+    name: deploy + smoke + teardown (${{ inputs.branch }})
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - run: sudo apt-get update && sudo apt-get install -y python3-yaml
+      - name: Render e2e
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+          E2E_BRANCH: ${{ inputs.branch }}
+          E2E_CONFIRM_COST: ${{ inputs.confirm_cost }}
+          E2E_STATE: ${{ runner.temp }}/render-e2e-state.json
+        run: tests/render/e2e.sh
+      - name: Teardown
+        # Backstop for a cancelled or timed-out run; e2e.sh already tears down
+        # on exit. Safe to run twice.
+        if: always()
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+        run: tests/render/teardown.sh "${{ runner.temp }}/render-e2e-state.json" "e2e-${{ github.run_id }}"

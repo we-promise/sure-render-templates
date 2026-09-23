@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit-contract:
+    name: unit + contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch deploy branches (drift check)
+        run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Install bats + shellcheck + PyYAML
+        run: sudo apt-get update && sudo apt-get install -y bats shellcheck python3-yaml
+      - name: Unit
+        run: bats tests/unit
+      - name: Contract
+        run: bats tests/contract
+
+  e2e-local:
+    name: local e2e (${{ matrix.branch }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # First slice: stable, no AI. Add the other deploy branches here as
+        # their slices land.
+        branch: [sure-no-ai]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch deploy branches
+        run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Install bats + PyYAML
+        run: sudo apt-get update && sudo apt-get install -y bats python3-yaml
+      - name: Local e2e
+        env:
+          E2E_BRANCH: ${{ matrix.branch }}
+        run: bats tests/e2e

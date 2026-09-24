@@ -111,7 +111,13 @@ redis() { $DC exec -T redis redis-cli "$@"; }
   # README: "Optionally, load demo data: rake demo_data:default", then log in as
   # user@example.com / Password1!. Run inside the web container like a self-hoster would.
   run timeout 1200 $DC exec -T sure-web bundle exec rake demo_data:default
-  [ "$status" -eq 0 ] || { echo "$output" | tail -40; false; }
+  if [ "$status" -ne 0 ]; then
+    echo "$output" | head -3                                   # includes the seed
+    echo "$output" | grep -m5 -E 'rake aborted|Error|error:' || true
+    echo "$output" | grep -v '^/usr/local/bundle' | tail -15
+    false
+  fi
+  echo "$output" | head -1
   echo "$output" | tail -8
   run python3 "${REPO_ROOT}/tests/lib/smoke.py" "http://127.0.0.1:${E2E_WEB_PORT}" --forwarded-proto https --demo
   echo "$output"

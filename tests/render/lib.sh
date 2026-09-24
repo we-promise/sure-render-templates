@@ -44,4 +44,4 @@ owner_id() {
 
 # Test resources are named <blueprint-name>-e2e-<run>. The sweeper and the
 # post-teardown check match on this.
-E2E_NAME_RE='^sure-[a-z0-9-]+-e2e-[a-z0-9]+$'
+E2E_NAME_RE='^(sure-[a-z0-9-]+|alphaclaw)-e2e-[a-z0-9]+$'

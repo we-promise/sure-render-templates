@@ -110,11 +110,11 @@ redis() { $DC exec -T redis redis-cli "$@"; }
 @test "demo data loads the README way and the demo user sees it" {
   # README: "Optionally, load demo data: rake demo_data:default", then log in as
   # user@example.com / Password1!. Run inside the web container like a self-hoster would.
-  run timeout 1200 $DC exec -T sure-web bundle exec rake demo_data:default
+  # Rails logs to stdout; keep stderr (where rake reports the error) apart.
+  run timeout 1200 $DC exec -T sure-web sh -c 'bundle exec rake demo_data:default 2>/tmp/demo-data.err'
   if [ "$status" -ne 0 ]; then
-    echo "$output" | head -3                                   # includes the seed
-    echo "$output" | grep -m5 -E 'rake aborted|Error|error:' || true
-    echo "$output" | grep -v '^/usr/local/bundle' | tail -15
+    echo "$output" | head -1                                   # includes the seed
+    $DC exec -T sure-web sh -c 'grep -v "^/usr/local/bundle" /tmp/demo-data.err | head -25' || true
     false
   fi
   echo "$output" | head -1

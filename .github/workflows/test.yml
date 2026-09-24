@@ -1,0 +1,62 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-contract:
+    name: unit + contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch deploy branches (drift check)
+        run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Install bats + shellcheck + PyYAML
+        run: sudo apt-get update && sudo apt-get install -y bats shellcheck python3-yaml
+      - name: Unit
+        run: bats tests/unit | tee "$RUNNER_TEMP/unit.tap"; exit "${PIPESTATUS[0]}"
+      - name: Contract
+        if: always()
+        run: bats tests/contract | tee "$RUNNER_TEMP/contract.tap"; exit "${PIPESTATUS[0]}"
+      - name: Annotate failures
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/unit.tap "$RUNNER_TEMP"/contract.tap; do
+            [ -f "$f" ] && tests/lib/tap-annotate.sh "$f"
+          done
+
+  e2e-local:
+    name: local e2e (${{ matrix.branch }}${{ matrix.image && ' @ nightly' || '' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # First slice: no AI on stable, latest and nightly. Add the other
+        # deploy branches as their slices land.
+        include:
+          - branch: sure-no-ai
+          - branch: sure-no-ai-latest
+          - branch: sure-no-ai
+            image: ghcr.io/we-promise/sure:nightly
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch deploy branches
+        run: git fetch --no-tags origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
+      - name: Install bats + PyYAML
+        run: sudo apt-get update && sudo apt-get install -y bats python3-yaml
+      - name: Local e2e
+        env:
+          E2E_BRANCH: ${{ matrix.branch }}
+          E2E_IMAGE: ${{ matrix.image }}
+          E2E_LOG_FILE: ${{ runner.temp }}/e2e-logs.txt
+        run: bats tests/e2e | tee "$RUNNER_TEMP/e2e.tap"; exit "${PIPESTATUS[0]}"
+      - name: Annotate failures
+        if: failure()
+        run: tests/lib/tap-annotate.sh "$RUNNER_TEMP/e2e.tap" "$RUNNER_TEMP/e2e-logs.txt"

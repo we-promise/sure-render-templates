@@ -1,0 +1,31 @@
+name: release watch
+
+# Every 6 hours: start "release test" for any new we-promise/sure build.
+# New stable release -> stable suite. New alpha -> latest suite. New
+# ghcr :nightly digest -> nightly suite. Each build is tested once; see
+# tests/release/watch.sh. Failures show up as a red
+# "release test" run and GitHub's normal notifications.
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: release-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: check for new Sure releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dispatch release tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/release/watch.sh

@@ -45,18 +45,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: OPENAI_ACCESS_TOKEN
-        value: ""
-      - key: MCP_API_TOKEN
-        value: ""
-      - key: MCP_USER_EMAIL
-        value: ""
-      - key: ASSISTANT_TYPE
-        value: ""
-      - key: EXTERNAL_ASSISTANT_URL
-        value: ""
-      - key: EXTERNAL_ASSISTANT_TOKEN
-        value: ""
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
 
   - type: worker
     name: sure-worker
@@ -96,18 +86,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: OPENAI_ACCESS_TOKEN
-        value: ""
-      - key: MCP_API_TOKEN
-        value: ""
-      - key: MCP_USER_EMAIL
-        value: ""
-      - key: ASSISTANT_TYPE
-        value: ""
-      - key: EXTERNAL_ASSISTANT_URL
-        value: ""
-      - key: EXTERNAL_ASSISTANT_TOKEN
-        value: ""
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
 
 databases:
   - name: sure-postgres

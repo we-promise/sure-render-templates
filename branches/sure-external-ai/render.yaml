@@ -7,7 +7,8 @@ services:
   - type: web
     name: alphaclaw
     runtime: docker
-    plan: starter
+    # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
+    # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
     healthCheckPath: /health
     envVars:
@@ -49,7 +50,8 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:stable
-    plan: starter
+    # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
+    # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
     healthCheckPath: /
     disk:
@@ -80,14 +82,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: AI_DEBUG_MODE
-        value: "false"
-      - key: OPENAI_ACCESS_TOKEN
-        sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_URI_BASE
-        value: https://api.openai.com/v1
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
       - key: VECTOR_STORE_PROVIDER
         value: pgvector
       - key: EMBEDDING_MODEL
@@ -107,12 +103,6 @@ services:
           type: web
           name: alphaclaw
           envVarKey: OPENCLAW_GATEWAY_TOKEN
-      - key: EXTERNAL_ASSISTANT_AGENT_ID
-        value: main
-      - key: EXTERNAL_ASSISTANT_SESSION_KEY
-        value: agent:main:main
-      - key: EXTERNAL_ASSISTANT_ALLOWED_EMAILS
-        value: ""
 
   - type: worker
     name: sure-worker
@@ -124,7 +114,8 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:stable
-    plan: starter
+    # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
+    # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
@@ -152,17 +143,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: AI_DEBUG_MODE
-        value: "false"
-      - key: OPENAI_ACCESS_TOKEN
-        fromService:
-          type: web
-          name: sure-web
-          envVarKey: OPENAI_ACCESS_TOKEN
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: OPENAI_URI_BASE
-        value: https://api.openai.com/v1
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
       - key: VECTOR_STORE_PROVIDER
         value: pgvector
       - key: EMBEDDING_MODEL
@@ -188,12 +170,6 @@ services:
           type: web
           name: alphaclaw
           envVarKey: OPENCLAW_GATEWAY_TOKEN
-      - key: EXTERNAL_ASSISTANT_AGENT_ID
-        value: main
-      - key: EXTERNAL_ASSISTANT_SESSION_KEY
-        value: agent:main:main
-      - key: EXTERNAL_ASSISTANT_ALLOWED_EMAILS
-        value: ""
 
 databases:
   - name: sure-postgres

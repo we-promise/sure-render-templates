@@ -43,11 +43,26 @@ q() { $BPQ "$@"; }
   done
 }
 
-@test "Sure web + worker use the documented starter sizing and Puma 1x3 tuning" {
+@test "all web and worker plans are omitted while datastore sizing stays explicit" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}"/branches/*/render.yaml "${GEN_DIR}"/*.yaml; do
+    run q "$f" 'all("plan" not in s for s in svcs if s["type"] in ("web", "worker"))'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f pins a web/worker plan"; false; }
+    run q "$f" '[s.get("plan") for s in svcs if s["type"]=="keyvalue"] == ["starter"]'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f changes Key Value sizing"; false; }
+    run q "$f" '[d.get("plan") for d in dbs] == ["basic-1gb"]'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f changes Postgres sizing"; false; }
+  done
+}
+
+@test "Sure web + worker leave sizing to the operator and keep Puma 1x3 tuning" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
     for name in sure-web sure-worker; do
-      run q "$f" "[s['plan'] for s in svcs if s['name']=='$name']"
-      [ "$output" = "starter" ] || { echo "$f $name plan=$output"; false; }
+      run q "$f" "all('plan' not in s for s in svcs if s['name']=='$name')"
+      [ "$status" -eq 0 ]
+      [ "$output" = "true" ] || { echo "$f $name pins plan"; false; }
       run q "$f" "{e['key']: e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars']}.get('WEB_CONCURRENCY')"
       [ "$output" = "1" ]
       run q "$f" "{e['key']: e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars']}.get('RAILS_MAX_THREADS')"
@@ -78,24 +93,70 @@ q() { $BPQ "$@"; }
   done
 }
 
-@test "compose/Render translation accepts the no-AI Blueprints (no unsupported features)" {
-  # simple-ai (sync:false prompted secrets) and external-ai (docker-runtime
-  # AlphaClaw) join in their own slices.
-  for b in sure-no-ai sure-no-ai-latest; do
+@test "compose/Render translation accepts no-AI and simple-AI Blueprints" {
+  # This validates generated PR templates, not the published deploy branches.
+  # External AI still uses unsupported docker-runtime services/prompted secrets.
+  for b in sure-no-ai sure-no-ai-latest sure-simple-ai sure-simple-ai-latest; do
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${GEN_DIR}/$b.yaml" >/dev/null
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${GEN_DIR}/$b.yaml" t0 >/dev/null
   done
 }
 
-@test "no-AI Blueprints ship every AI setting blank" {
-  f="${REPO_ROOT}/branches/sure-no-ai/render.yaml"
-  for name in sure-web sure-worker; do
-    for key in OPENAI_ACCESS_TOKEN MCP_API_TOKEN MCP_USER_EMAIL ASSISTANT_TYPE EXTERNAL_ASSISTANT_URL EXTERNAL_ASSISTANT_TOKEN; do
-      run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='$key']"
+@test "OpenAI settings stay outside every Blueprint so environment groups can supply them" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}"/branches/*/render.yaml "${GEN_DIR}"/*.yaml; do
+    # This rejects value, sync:false, generateValue and fromService entries alike.
+    # A copied token on the worker would override its group just like a literal.
+    run q "$f" '[s["name"] + "." + e["key"] for s in svcs for e in s.get("envVars", []) if e.get("key") in ("OPENAI_ACCESS_TOKEN", "OPENAI_MODEL", "OPENAI_URI_BASE")]'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "$f overrides: $output"; false; }
+    run q "$f" '[s["name"] + "." + e["key"] for s in svcs for e in s.get("envVars", []) if e.get("fromService", {}).get("envVarKey") in ("OPENAI_ACCESS_TOKEN", "OPENAI_MODEL", "OPENAI_URI_BASE")]'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "$f references unmanaged settings: $output"; false; }
+  done
+}
+
+@test "no-AI Blueprints declare only infrastructure and boot settings" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}/branches/sure-no-ai/render.yaml" "${GEN_DIR}"/sure-no-ai*.yaml; do
+    run q "$f" '[s["name"] + "." + e["key"] for s in svcs for e in s.get("envVars", []) if e.get("key") not in ("PORT", "DATABASE_URL", "REDIS_URL", "SECRET_KEY_BASE", "SELF_HOSTED", "WEB_CONCURRENCY", "RAILS_MAX_THREADS", "RAILS_FORCE_SSL", "RAILS_ASSUME_SSL")]'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "$f unexpected optional config: $output"; false; }
+  done
+}
+
+@test "templates do not pin no-op optional settings or require SSO mail or telemetry credentials" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}"/branches/*/render.yaml "${GEN_DIR}"/*.yaml; do
+    run q "$f" '[s["name"] + "." + e["key"] for s in svcs for e in s.get("envVars", []) if e.get("value") == "" or e.get("key") in ("AI_DEBUG_MODE", "EXTERNAL_ASSISTANT_AGENT_ID", "EXTERNAL_ASSISTANT_SESSION_KEY", "EXTERNAL_ASSISTANT_ALLOWED_EMAILS") or e.get("key", "").startswith(("AUTH_", "OIDC_", "GOOGLE_OAUTH_", "GITHUB_CLIENT_", "SMTP_", "POSTHOG_", "LANGFUSE_"))]'
+    [ "$status" -eq 0 ]
+    [ -z "$output" ] || { echo "$f unexpected optional config: $output"; false; }
+  done
+}
+
+@test "AI profiles retain their existing pgvector model and dimensions" {
+  for f in "${REPO_ROOT}/branches/sure-simple-ai/render.yaml" "${REPO_ROOT}/branches/sure-external-ai/render.yaml" "${GEN_DIR}"/sure-simple-ai*.yaml "${GEN_DIR}"/sure-external-ai*.yaml; do
+    for name in sure-web sure-worker; do
+      run q "$f" "{e['key']: e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key'] in ('VECTOR_STORE_PROVIDER', 'EMBEDDING_MODEL', 'EMBEDDING_DIMENSIONS')}"
       [ "$status" -eq 0 ]
-      # exactly one entry, and it is the empty string
-      [ "$(q "$f" "len([e for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='$key' and e.get('value')==''])")" = "1" ] || { echo "$name.$key"; false; }
+      [ "$output" = "{'VECTOR_STORE_PROVIDER': 'pgvector', 'EMBEDDING_MODEL': 'text-embedding-3-small', 'EMBEDDING_DIMENSIONS': '1536'}" ] || { echo "$f $name: $output"; false; }
     done
+  done
+}
+
+@test "external AI retains its assistant selection and generated gateway and MCP wiring" {
+  for f in "${REPO_ROOT}/branches/sure-external-ai/render.yaml" "${GEN_DIR}"/sure-external-ai*.yaml; do
+    for name in sure-web sure-worker; do
+      run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ASSISTANT_TYPE']"
+      [ "$status" -eq 0 ]
+      [ "$output" = "external" ]
+      run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
+      [ "$status" -eq 0 ]
+      [ "$output" = "http://alphaclaw:3000/v1/chat/completions" ]
+      run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_TOKEN']"
+      [ "$status" -eq 0 ]
+      [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'envVarKey': 'OPENCLAW_GATEWAY_TOKEN'}" ]
+    done
+    [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="alphaclaw" for e in s["envVars"] if e["key"]=="OPENCLAW_GATEWAY_TOKEN"] == [True]')" = "true" ]
+    [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_API_TOKEN"] == [True]')" = "true" ]
+    [ "$(q "$f" '[e.get("sync") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_USER_EMAIL"] == [False]')" = "true" ]
   done
 }
 

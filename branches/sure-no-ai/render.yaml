@@ -14,7 +14,8 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:latest
-    plan: starter
+    # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
+    # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
     healthCheckPath: /
     disk:
@@ -45,18 +46,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: OPENAI_ACCESS_TOKEN
-        value: ""
-      - key: MCP_API_TOKEN
-        value: ""
-      - key: MCP_USER_EMAIL
-        value: ""
-      - key: ASSISTANT_TYPE
-        value: ""
-      - key: EXTERNAL_ASSISTANT_URL
-        value: ""
-      - key: EXTERNAL_ASSISTANT_TOKEN
-        value: ""
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
 
   - type: worker
     name: sure-worker
@@ -68,7 +59,8 @@ services:
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
       url: ghcr.io/we-promise/sure:latest
-    plan: starter
+    # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
+    # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
     dockerCommand: bundle exec sidekiq
     envVars:
@@ -96,18 +88,8 @@ services:
         value: "true"
       - key: RAILS_ASSUME_SSL
         value: "true"
-      - key: OPENAI_ACCESS_TOKEN
-        value: ""
-      - key: MCP_API_TOKEN
-        value: ""
-      - key: MCP_USER_EMAIL
-        value: ""
-      - key: ASSISTANT_TYPE
-        value: ""
-      - key: EXTERNAL_ASSISTANT_URL
-        value: ""
-      - key: EXTERNAL_ASSISTANT_TOKEN
-        value: ""
+      # Configure optional integrations in Sure first; env/group overrides are optional.
+      # See docs/optional-integrations.md for setup and existing-deployment migration.
 
 databases:
   - name: sure-postgres

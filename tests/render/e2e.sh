@@ -3,7 +3,7 @@
 #
 # Creates the Blueprint's resources through the Render API (Render has no
 # public API to instantiate a Blueprint), named <name>-e2e-<run>, at the
-# Blueprint's own plans. Waits for the deploys to go live, runs the same smoke
+# explicit Blueprint plans or its paid 512 MB new-service default. Waits for the deploys to go live, runs the same smoke
 # test as the local e2e against the real https URL, then deletes everything.
 #
 #   E2E_BRANCH        deploy branch (default sure-no-ai)

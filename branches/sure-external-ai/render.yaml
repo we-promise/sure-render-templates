@@ -3,6 +3,7 @@ services:
     name: sure-redis
     plan: starter
     ipAllowList: []
+    maxmemoryPolicy: noeviction
 
   - type: web
     name: alphaclaw

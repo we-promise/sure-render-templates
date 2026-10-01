@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Smoke-test a running Sure the way a new self-hoster would use it.
 
-  smoke.py <base-url> [--forwarded-proto https] [--demo]
+  smoke.py <base-url> [--forwarded-proto https] [--demo | --ai]
 
 Default flow: health, open sign-up, log in from a fresh session, complete
 onboarding, create a manual cash account, add an expense through the normal
@@ -16,6 +16,11 @@ Used by the local e2e (plain http to the container, with the X-Forwarded-Proto
 header Render's proxy would add, because the Blueprint sets RAILS_FORCE_SSL)
 and by the Render e2e (real https URL). Cookies are kept in a hand-rolled jar
 that ignores the Secure flag, so the same flow works over local http.
+
+--ai additionally opts the synthetic user into AI, creates a chat and a
+follow-up message, and requires finance-grounded provider replies in assistant-message
+HTML. This makes real AI requests and incurs provider usage. It does not test
+browser JavaScript, streaming delivery or document retrieval/embeddings.
 
 Prints one line per step; exits non-zero on the first failure.
 """
@@ -225,7 +230,9 @@ def main():
         fail(f"logged-in session is not working: GET / -> {status} {loc!r}")
     ok("log-in with the new account works in a fresh session")
 
-    new_user_flow(fresh)
+    records = new_user_flow(fresh)
+    if "--ai" in args:
+        ai_flow(fresh, records)
 
 
 def new_user_flow(c):
@@ -284,6 +291,101 @@ def new_user_flow(c):
             fail(f"account balance never became 957.83 (worker sync); /accounts shows {shown}")
         time.sleep(3)
     ok("worker synced the account: balance is now 957.83")
+    return {"account": acct, "transaction": txn}
+
+
+class AssistantText(html.parser.HTMLParser):
+    """Read only assistant prose; an echoed user prompt must never pass."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth = 0
+        self.assistant_depth = None
+        self.prose_depth = None
+        self.parts = []
+        self.replies = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "div":
+            return
+        self.depth += 1
+        attrs = dict(attrs)
+        if attrs.get("id", "").startswith("assistant_message_"):
+            self.assistant_depth = self.depth
+        if self.assistant_depth and "prose--ai-chat" in attrs.get("class", "").split():
+            self.prose_depth = self.depth
+            self.parts = []
+
+    def handle_endtag(self, tag):
+        if tag != "div":
+            return
+        if self.depth == self.prose_depth:
+            self.replies.append("".join(self.parts))
+            self.prose_depth = None
+        if self.depth == self.assistant_depth:
+            self.assistant_depth = None
+        self.depth -= 1
+
+    def handle_data(self, data):
+        if self.prose_depth is not None:
+            self.parts.append(data)
+
+
+def wait_for_ai_reply(client, path, marker, timeout=180, min_replies=1):
+    deadline = time.monotonic() + timeout
+    while True:
+        status, _, page = client.request("GET", path)
+        if status != 200:
+            fail(f"AI chat read returned {status}")
+        parser = AssistantText()
+        parser.feed(page)
+        if len(parser.replies) >= min_replies and marker in parser.replies[-1]:
+            # Reload once more to prove that a persisted assistant reply is served.
+            status, _, page = client.request("GET", path)
+            persisted = AssistantText()
+            persisted.feed(page)
+            if status == 200 and len(persisted.replies) >= min_replies and marker in persisted.replies[-1]:
+                return len(persisted.replies)
+        if time.monotonic() >= deadline:
+            fail("AI reply did not persist within the timeout; check worker/provider logs")
+        time.sleep(3)
+
+
+def ai_flow(client, records):
+    status, _, page = client.request("GET", "/")
+    if status != 200:
+        fail(f"AI consent page returned {status}")
+    parser = Forms()
+    parser.feed(page)
+    for f in parser.forms:
+        fields = dict(f["fields"])
+        if fields.get("user[ai_enabled]") == "true":
+            status, _, _ = client.request("POST", urllib.parse.urlparse(f["action"]).path, fields)
+            if status not in (302, 303):
+                fail(f"enabling AI for the synthetic user returned {status}")
+            break
+
+    # Expected amounts are deliberately absent from prompts: the answer must
+    # be grounded in this synthetic household, not an echoed user message.
+    marker = "957.83"
+    path = submit(client, "/chats/new", r"^/chats$", {
+        "chat[content]": f"Look up my account named {records['account']}. What is its current balance in USD? Use my account data and keep your answer to one sentence.",
+        "chat[ai_model]": "gpt-4o-mini",
+    }, "AI create chat")
+    if not re.fullmatch(r"/chats/[0-9a-f-]{36}", path):
+        fail("AI chat did not redirect to a chat record")
+    prior_replies = wait_for_ai_reply(client, path, marker)
+    ok("real AI reply persisted after creating a chat (gpt-4o-mini)")
+
+    followup = "42.17"
+    next_path = submit(client, path, r"^/chats/[0-9a-f-]{36}/messages$", {
+        "message[content]": f"Find my expense named {records['transaction']}. What is its amount in USD? Use my transaction data and keep your answer to one sentence.",
+        "message[ai_model]": "gpt-4o-mini",
+    }, "AI follow-up")
+    if next_path != path:
+        fail("AI follow-up redirected away from its chat")
+    wait_for_ai_reply(client, path, followup, min_replies=prior_replies + 1)
+    ok("real AI follow-up persisted in the same chat")
 
 
 def demo_flow(base, proto):

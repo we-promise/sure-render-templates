@@ -3,7 +3,7 @@
 Deploy Sure first, then configure the integrations you want. OpenAI, SSO, SMTP,
 PostHog, and Langfuse credentials are **not prerequisites for creating the Sure
 services**. Environment groups are optional. The database/Redis connections,
-Rails secret, self-hosted mode, HTTPS settings, and process sizing remain in the
+Rails secret, self-hosted mode, HTTPS settings, and Puma process/thread tuning remain in the
 Blueprint because they are infrastructure and runtime configuration.
 
 This guide was checked against **Sure v0.7.5**. It distinguishes working UI setup
@@ -155,7 +155,9 @@ A Blueprint sync alone cannot unlock the UI or fix group inheritance.
    all six with `scripts/update-deploy-branches.sh` for the repository's drift
    check to pass. First follow the [branch publication precautions](../README.md#branch-layout):
    Blueprint Auto Sync can apply live changes, including resetting manually
-   changed service plans. Do not publish before that impact is approved or
+   changed template-managed settings. Web/worker plans are now omitted and
+   therefore retained; datastore plans remain explicit (see [service sizing](../README.md#service-sizing)).
+   Do not publish before that impact is approved or
    safely paused. Do not remove overrides while an older Blueprint can recreate them.
 2. Before removing any OpenAI overrides, check whether pgvector currently uses
    them as embedding fallbacks. If it does, preserve the intended credentials

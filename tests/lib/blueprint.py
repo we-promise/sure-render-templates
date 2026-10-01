@@ -16,6 +16,13 @@ import yaml
 
 SUPPORTED_SERVICE_TYPES = {"web", "worker", "keyvalue"}
 
+# This adapter creates NEW throwaway services through the API, not Blueprint
+# updates. Mirror the Blueprint's omitted-plan creation default explicitly:
+# paid 0.5 CPU / 512 MB (the API's backward-compatible "starter" identifier).
+# Existing Blueprint-managed services keep their current plan when it is omitted.
+# https://render.com/docs/blueprint-spec#plan
+NEW_SERVICE_DEFAULT_PLAN = "starter"
+
 
 def load(path):
     with open(path) as f:
@@ -147,7 +154,7 @@ def render_plan(path, suffix):
         })
     for svc in image_services(bp):
         env = resolve_env(bp, svc, "@@DATABASE_URL@@", "@@REDIS_URL@@", generated)
-        details = {"runtime": "image", "plan": svc["plan"]}
+        details = {"runtime": "image", "plan": svc.get("plan", NEW_SERVICE_DEFAULT_PLAN)}
         if svc.get("healthCheckPath"):
             details["healthCheckPath"] = svc["healthCheckPath"]
         if svc.get("disk"):

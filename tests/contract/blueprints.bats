@@ -43,11 +43,26 @@ q() { $BPQ "$@"; }
   done
 }
 
-@test "Sure web + worker use the documented starter sizing and Puma 1x3 tuning" {
+@test "all web and worker plans are omitted while datastore sizing stays explicit" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}"/branches/*/render.yaml "${GEN_DIR}"/*.yaml; do
+    run q "$f" 'all("plan" not in s for s in svcs if s["type"] in ("web", "worker"))'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f pins a web/worker plan"; false; }
+    run q "$f" '[s.get("plan") for s in svcs if s["type"]=="keyvalue"] == ["starter"]'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f changes Key Value sizing"; false; }
+    run q "$f" '[d.get("plan") for d in dbs] == ["basic-1gb"]'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f changes Postgres sizing"; false; }
+  done
+}
+
+@test "Sure web + worker leave sizing to the operator and keep Puma 1x3 tuning" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
     for name in sure-web sure-worker; do
-      run q "$f" "[s['plan'] for s in svcs if s['name']=='$name']"
-      [ "$output" = "starter" ] || { echo "$f $name plan=$output"; false; }
+      run q "$f" "all('plan' not in s for s in svcs if s['name']=='$name')"
+      [ "$status" -eq 0 ]
+      [ "$output" = "true" ] || { echo "$f $name pins plan"; false; }
       run q "$f" "{e['key']: e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars']}.get('WEB_CONCURRENCY')"
       [ "$output" = "1" ]
       run q "$f" "{e['key']: e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars']}.get('RAILS_MAX_THREADS')"

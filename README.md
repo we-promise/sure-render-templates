@@ -26,6 +26,14 @@ Each flavor deploys from two branches: the plain branch name (for example `sure-
 
 You can also switch an existing deployment without redeploying the Blueprint: in the Render Dashboard open each service (`sure-web` and `sure-worker`), set the image URL to the tag you want, and trigger a manual deploy. Note that a later Blueprint sync resets the tag to whatever the deployed branch pins. On a fork or clone, `scripts/use-image-tag.sh [stable|latest]` rewrites the tag in every Blueprint file.
 
+## Service sizing
+
+Web and worker services intentionally omit `plan`, including AlphaClaw in the External AI profile. According to [Render's Blueprint reference](https://render.com/docs/blueprint-spec#plan), a later sync **retains an existing service's current size**, so an operator's upgrade is not reset by this template.
+
+For a **new** web/worker service, omission selects Render's paid **0.5 CPU / 512 MB** default (`0.5c-512mb`, previously called Starter). It does not create a size-selection prompt and does not mean Free. Review the deployment costs before approving creation. Choose a larger compute plan on the service's **Instance Type / Compute Plan** page in Render when your workload needs it; later Blueprint syncs preserve that choice. 512 MB is a starting default, not a guarantee that a heavy Sure workload or demo-data import will fit. Size up before those operations if needed. If you need a larger size from the very first boot, set `plan` in your own fork before creating the Blueprint, then omit it again after sizing is managed in Render.
+
+Key Value stays explicitly `starter` (256 MB) and Postgres stays `basic-1gb` (1 GB). This avoids silently changing the new-database baseline to Render's smaller 256 MB default. The External AI profile still creates its additional AlphaClaw service and disk; omitting its service plan does not remove their charges. Only web/worker sizing is operator-managed by this change; database/Key Value settings and disk sizes remain template-managed.
+
 ## Branch layout
 
 ```text
@@ -48,7 +56,7 @@ git fetch origin '+refs/heads/sure-*:refs/remotes/origin/sure-*'
 
 That script creates or updates the six deployment branches locally (stable and latest per flavor), copies the relevant Blueprint to root-level `render.yaml`, rewrites the image tag for the `-latest` branches, commits each branch, and returns you to your original branch. **All six public deployment branches must match the proposed source templates for the drift contract to pass.** Generating them only locally or updating only `main` is not sufficient.
 
-Publishing those branches is a deployment-affecting operation: a Render Blueprint with **Auto Sync** enabled applies changes when its tracked branch is updated. Service-level `autoDeployTrigger: off` does not disable Blueprint sync, and that field has no effect on prebuilt-image services. Before publishing, review every affected Blueprint's sync setting and live configuration, including manually changed plans, image tags, and environment values. A sync can restore template-defined settings, such as downgrading a service that was manually resized. Obtain approval for that impact, or arrange an approved pause of Blueprint Auto Sync first; do not assume that publishing is a no-deploy action.
+Publishing those branches is a deployment-affecting operation: a Render Blueprint with **Auto Sync** enabled applies changes when its tracked branch is updated. Service-level `autoDeployTrigger: off` does not disable Blueprint sync, and that field has no effect on prebuilt-image services. Before publishing, review every affected Blueprint's sync setting and live configuration, including manually changed plans, image tags, and environment values. A sync can still restore template-defined settings such as datastore plans, image tags, and environment values; omitted web/worker plans are retained as described above. Obtain approval for that impact, or arrange an approved pause of Blueprint Auto Sync first; do not assume that publishing is a no-deploy action.
 
 After those checks, fetch the current deployment refs **before generating**, review each generated diff, and publish all six branches in one atomic push with explicit per-branch leases (the script prints the command). A lease mismatch means a branch changed or was not fetched: stop, fetch, and review again instead of bypassing it. The generator recreates branch histories from the source branch, so a guarded history update can be necessary. Never use an unguarded force push. Rerun the full PR checks against the newly fetched public refs; do not skip or relax the drift check. Blueprint Auto Sync should only be resumed after the desired template and live settings have been reconciled.
 

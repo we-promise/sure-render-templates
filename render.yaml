@@ -14,7 +14,7 @@ services:
     # or after deploy set each service's image URL to
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
     # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
@@ -59,7 +59,7 @@ services:
     # or after deploy set each service's image URL to
     # ghcr.io/we-promise/sure:latest in the Render Dashboard and redeploy.
     image:
-      url: ghcr.io/we-promise/sure:stable
+      url: ghcr.io/we-promise/sure:latest
     # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
     # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off

@@ -49,6 +49,12 @@ services:
         value: "true"
       # Configure optional integrations in Sure first; env/group overrides are optional.
       # See docs/optional-integrations.md for setup and existing-deployment migration.
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
 
   - type: worker
     name: sure-worker
@@ -91,6 +97,12 @@ services:
         value: "true"
       # Configure optional integrations in Sure first; env/group overrides are optional.
       # See docs/optional-integrations.md for setup and existing-deployment migration.
+      - key: VECTOR_STORE_PROVIDER
+        value: pgvector
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: EMBEDDING_DIMENSIONS
+        value: "1536"
 
 databases:
   - name: sure-postgres

@@ -58,7 +58,7 @@ while IFS= read -r row; do
   log "created postgres $(jq -r .name <<<"$row") ($pg_id)"
 done < <(jq -c '.databases[]' "$work/plan.json")
 while IFS= read -r row; do
-  body="$(jq -c --arg o "$owner" --arg r "$RENDER_REGION" '{name, plan, ipAllowList, ownerId: $o, region: $r}' <<<"$row")"
+  body="$(keyvalue_create_body "$owner" "$RENDER_REGION" <<<"$row")"
   kv="$(api POST /key-value "$body")"; kv_id="$(jq -r '.id' <<<"$kv")"; remember keyvalue "$kv_id"
   log "created key value $(jq -r .name <<<"$row") ($kv_id)"
 done < <(jq -c '.keyvalues[]' "$work/plan.json")

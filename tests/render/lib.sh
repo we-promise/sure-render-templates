@@ -10,6 +10,13 @@ RENDER_REGION="${RENDER_REGION:-oregon}"
 log() { printf '%s %s\n' "$(date -u +%H:%M:%S)" "$*" >&2; }
 die() { log "ERROR: $*"; exit 1; }
 
+# keyvalue_create_body OWNER REGION: read one plan resource from stdin.
+keyvalue_create_body() {
+  jq -c --arg o "$1" --arg r "$2" '
+    {name, plan, ipAllowList, ownerId: $o, region: $r}
+    + (if has("maxmemoryPolicy") then {maxmemoryPolicy} else {} end)'
+}
+
 # api METHOD PATH [JSON-BODY] -> prints the response body; fails on non-2xx.
 api() {
   local method="$1" path="$2" body="${3:-}" out code

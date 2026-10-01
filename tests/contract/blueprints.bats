@@ -30,6 +30,14 @@ q() { $BPQ "$@"; }
   diff "${REPO_ROOT}/render.yaml" "${GEN_DIR}/sure-no-ai.yaml"
 }
 
+@test "every Blueprint protects the Sidekiq queue with noeviction" {
+  for f in "${REPO_ROOT}/render.yaml" "${REPO_ROOT}"/branches/*/render.yaml "${GEN_DIR}"/*.yaml; do
+    run q "$f" '[s.get("maxmemoryPolicy") for s in svcs if s["type"]=="keyvalue" and s["name"]=="sure-redis"] == ["noeviction"]'
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ] || { echo "$f must set sure-redis maxmemoryPolicy to noeviction"; false; }
+  done
+}
+
 @test "every deployable service has autoDeployTrigger off" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml "${REPO_ROOT}/render.yaml"; do
     run q "$f" 'all(s.get("autoDeployTrigger") is False for s in svcs if s["type"] in ("web","worker"))'

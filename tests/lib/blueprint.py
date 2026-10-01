@@ -146,12 +146,15 @@ def render_plan(path, suffix):
             "databaseUser": db["user"],
         })
     for kv in [s for s in bp["services"] if s["type"] == "keyvalue"]:
-        plan["keyvalues"].append({
+        resource = {
             "blueprintName": kv["name"],
             "name": f"{kv['name']}-{suffix}",
             "plan": kv["plan"],
             "ipAllowList": kv.get("ipAllowList", []),
-        })
+        }
+        if "maxmemoryPolicy" in kv:
+            resource["maxmemoryPolicy"] = kv["maxmemoryPolicy"]
+        plan["keyvalues"].append(resource)
     for svc in image_services(bp):
         env = resolve_env(bp, svc, "@@DATABASE_URL@@", "@@REDIS_URL@@", generated)
         details = {"runtime": "image", "plan": svc.get("plan", NEW_SERVICE_DEFAULT_PLAN)}

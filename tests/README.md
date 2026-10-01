@@ -73,3 +73,76 @@ Same rules as Garry's suites:
 
 - Negatives are `run <cmd>` + `[ "$status" -ne 0 ]`, never a bare `! cmd` (bats doesn't fail on it).
 - Missing prerequisites fail, they don't skip. A skip shows green, and CI must never go green unproven. One deliberate exception: the Render e2e skips (with a notice) when `RENDER_API_KEY` isn't set, so release runs stay green until the key is added.
+
+## Persistent sample app: browser journey and quick HTTP smoke
+
+`tests/render/e2e.sh` is **only for disposable resources**: it provisions,
+loads demo data and tears down. Never use it against the persistent **Sure app**.
+
+The separate `tests/browser` package exercises a real Chromium browser against
+an existing HTTPS app. It uses a fresh `e2e-…@example.com` user and household,
+completes onboarding, logs in from a fresh session, creates a $1,000 cash account
+and $42.17 expense, waits for the worker-calculated $957.83 balance, and asks AI
+for the account balance and expense amount. Expected amounts are absent from
+prompts; assertions examine persisted assistant replies after reload, not exact
+prose or the echoed user prompt. It checks browser JavaScript errors too.
+
+Prerequisites:
+
+- User-provisioned stable Simple AI services, database and worker are live.
+  [Stable Simple AI Blueprint](https://render.com/deploy?repo=https://github.com/we-promise/sure-render-templates/tree/sure-simple-ai).
+- The intended administrator already exists. **Do not let test signup claim the
+  first administrator on a new installation.** Open signup must be enabled.
+- A working AI provider/model is configured on the app and worker. The baseline
+  scenario currently expects the Blueprint's `gpt-4o-mini`. Credentials stay on
+  Render; the test runner needs no OpenAI key and does not change global settings.
+- Before calling this release validation, record both services' **live deploy**
+  image SHA and compare with the expected immutable release digest. `/up`, an
+  image tag, and a green browser test do not establish image identity.
+- Approve synthetic records and real AI token usage on the exact sample URL.
+
+```sh
+npm --prefix tests/browser ci
+(cd tests/browser && npx playwright install chromium)
+E2E_SAMPLE_URL=https://YOUR-APP.onrender.com \
+  E2E_CONFIRM_SAMPLE_DATA=yes E2E_ADMIN_ESTABLISHED=yes \
+  npm --prefix tests/browser test
+```
+
+There is no service provisioning, demo seeding, global provider change, schedule,
+or deletion in this entry. Each run leaves its own identifiable synthetic
+household for inspection. A future cleanup must verify ownership of those exact
+records; never reset the shared sample database or call infrastructure teardown.
+
+Evidence is written under `tests/browser/test-results` and
+`tests/browser/playwright-report`: screenshots, browser errors, record identifiers
+and a trace started **after** signup/login. Treat traces as sensitive because
+network snapshots may contain synthetic-user session cookies. Keep them private
+and short-lived; do not post traces to public issues or commit them.
+
+For a quick **HTTP-only** check using the same synthetic finance journey and two
+AI requests (no browser/JavaScript coverage):
+
+```sh
+E2E_SAMPLE_URL=https://YOUR-APP.onrender.com \
+  E2E_CONFIRM_SAMPLE_DATA=yes E2E_ADMIN_ESTABLISHED=yes \
+  tests/render/persistent-smoke.sh
+```
+
+The initial scenario is not comprehensive coverage: it does not prove a specific
+internal tool call, document embeddings/retrieval, provider switching, failed-job
+queue state or every settings path. Finance answers are data-grounded; exact
+worker jobs require separate server-side evidence. Admin provider switching needs
+an explicit configuration-precedence policy and isolated fake providers before
+it can safely change and restore the shared app's baseline. Add focused scenarios
+as those contracts are agreed. Do not treat parser unit tests or browser test
+discovery as a live E2E pass.
+
+The manual `Persistent sample app browser test` workflow adds a read-only Render
+identity check before and after the scenario. Supply the approved owner,
+environment, service IDs, Render URL and expected digest; it uses the repository's
+existing `RENDER_API_KEY` secret only for metadata GET requests. It never modifies
+`RENDER_OWNER_ID`, triggers deployments or creates services. Only screenshots are
+uploaded with one-day retention; traces stay on the runner/local machine. See
+[stable deployment proposal](../docs/stable-sample-deployment.md) for the separate
+automatic stable-rollout design and outstanding approvals.

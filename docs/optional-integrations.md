@@ -151,9 +151,12 @@ A Blueprint sync alone cannot unlock the UI or fix group inheritance.
 
 1. Ensure the deployment's actual Blueprint branch contains the updated
    template, then sync it. Merging to `main` does not update the six deploy
-   branches behind the README buttons. Maintainers must regenerate them with
-   `scripts/update-deploy-branches.sh` and publish them separately when ready.
-   Do not remove overrides while an older Blueprint can recreate them.
+   branches behind the README buttons. Maintainers must regenerate and publish
+   all six with `scripts/update-deploy-branches.sh` for the repository's drift
+   check to pass. First follow the [branch publication precautions](../README.md#branch-layout):
+   Blueprint Auto Sync can apply live changes, including resetting manually
+   changed service plans. Do not publish before that impact is approved or
+   safely paused. Do not remove overrides while an older Blueprint can recreate them.
 2. Before removing any OpenAI overrides, check whether pgvector currently uses
    them as embedding fallbacks. If it does, preserve the intended credentials
    **and endpoint** in explicit `EMBEDDING_ACCESS_TOKEN` / `EMBEDDING_URI_BASE`

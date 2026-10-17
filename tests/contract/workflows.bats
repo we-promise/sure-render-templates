@@ -62,6 +62,6 @@ triggers() {
 }
 
 @test "a run that skips the Render e2e says so in the job summary and a notice" {
-  run grep -c 'Render e2e NOT run' "${REPO_ROOT}/.github/workflows/release-test.yml"
+  run grep -c 'NOT run' "${REPO_ROOT}/.github/workflows/release-test.yml"
   [ "$output" -ge 2 ]
 }

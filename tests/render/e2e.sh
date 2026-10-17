@@ -60,7 +60,33 @@ trap teardown EXIT
 
 owner="$(owner_id)"
 log "branch=$BRANCH suffix=$SUFFIX owner=$owner region=$RENDER_REGION"
-log "cost while running: web starter \$7 + worker starter \$7 + key value starter \$10 + postgres basic-1gb \$19 + 10 GB disk \$2.50 = \$45.50/mo (~\$0.063/h), prorated per second"
+# Cost line derived from the generated plan (render.com/pricing list rates,
+# prorated per second while resources exist). Unknown plans are called out
+# rather than silently priced at the 512 MB default; one-off jobs bill per
+# second at the web service's plan rate on top.
+rate_cents() { # rate_cents <kind> <api-plan|sizeGB> -> monthly cents or empty
+  case "$1" in
+    service) case "$2" in starter|0.5c-512mb) echo 700 ;; standard|1c-2g) echo 2500 ;; esac ;;
+    kv)      case "$2" in starter|256mb) echo 1000 ;; esac ;;
+    pg)      case "$2" in basic_1gb|0.5c-1g) echo 1900 ;; esac ;;
+    disk)    echo $(( 25 * $2 )) ;;
+  esac
+}
+total_cents=0; unknown_rate=0; cost_parts=""
+while IFS=$'\t' read -r kind label plan; do
+  cents="$(rate_cents "$kind" "$plan")"
+  if [ -n "$cents" ]; then
+    total_cents=$(( total_cents + cents ))
+    cost_parts+="${cost_parts:+, }$label $plan \$$(awk "BEGIN{printf \"%.2f\", $cents/100}")"
+  else
+    unknown_rate=1
+    cost_parts+="${cost_parts:+, }$label $plan (unpriced)"
+  fi
+done < <(jq -r '(.services[] | ["service", .blueprintName, .serviceDetails.plan] | @tsv),
+               (.services[] | select(.serviceDetails.disk) | ["disk", .serviceDetails.disk.name, (.serviceDetails.disk.sizeGB | tostring)] | @tsv),
+               (.keyvalues[] | ["kv", .blueprintName, .plan] | @tsv),
+               (.databases[] | ["pg", .blueprintName, .plan] | @tsv)' "$work/plan.json")
+log "cost while running: $cost_parts = \$$(awk "BEGIN{printf \"%.2f\", $total_cents/100}")/mo (~\$$(awk "BEGIN{printf \"%.3f\", $total_cents/72000}")/h), prorated per second, plus one-off jobs at the web plan rate$([ "$unknown_rate" = 1 ] && echo '; some plans unpriced - see render.com/pricing')"
 
 # Datastores first; services need their connection strings.
 pg_url=""; kv_url=""

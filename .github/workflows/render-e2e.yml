@@ -27,6 +27,14 @@ on:
         description: 'Optional e2e-only worker plan override; blank = 512 MB default'
         required: false
         default: 
+      image_digest:
+        description: 'Optional sha256:... digest to pin the image to (requested release); blank = resolve the branch tag at run time'
+        required: false
+        default: ''
+      image_label:
+        description: 'Optional label for the requested release (e.g. v0.7.6-alpha.7), logged next to the pinned digest'
+        required: false
+        default: ''
   workflow_call:
     inputs:
       branch:
@@ -41,6 +49,12 @@ on:
       worker_plan:
         type: string
         default: 
+      image_digest:
+        type: string
+        default: ''
+      image_label:
+        type: string
+        default: ''
     secrets:
       RENDER_API_KEY:
         required: false
@@ -102,6 +116,8 @@ jobs:
           E2E_CONFIRM_COST: ${{ inputs.confirm_cost }}
           E2E_PLAN_WEB: ${{ inputs.web_plan }}
           E2E_PLAN_WORKER: ${{ inputs.worker_plan }}
+          E2E_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          E2E_IMAGE_LABEL: ${{ inputs.image_label }}
           E2E_STATE: ${{ runner.temp }}/render-e2e-state.json
         run: tests/render/e2e.sh
       - name: Teardown

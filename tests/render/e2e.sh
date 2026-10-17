@@ -12,8 +12,10 @@
 #   E2E_PLAN_WEB / E2E_PLAN_WORKER  e2e-only plan override for that service
 #     type (legacy API name, e.g. "standard" = 1c-2g); unset = 512 MB default.
 #     One-off jobs inherit the web service's plan (render.com/docs/jobs).
-#   E2E_IMAGE_DIGEST  sha256:... to pin the image to; unset = resolve the
-#     branch's tag with docker (mutable tags move; see the pin note below).
+#   E2E_IMAGE_DIGEST  sha256:... to pin the image to (the requested release's
+#     digest when the caller knows it); unset = resolve the branch's tag with
+#     docker (mutable tags move; see the pin note below).
+#   E2E_IMAGE_LABEL   optional requested-release label logged with the digest.
 #   E2E_KEEP=1        skip teardown (debugging only; the sweeper still deletes after 2h)
 #   RENDER_API_KEY, optional RENDER_OWNER_ID / RENDER_REGION
 set -euo pipefail
@@ -61,7 +63,7 @@ else
   base="$(sed -E 's/(:[^:@/]*)?(@.*)?$//' <<<"$image_url")"
   pinned="$base@$digest"
   sed -i "s|url: $image_url|url: $pinned|g" "$work/render.yaml"
-  log "pinned image for this run: $image_url -> $pinned (mutable tags can move between a failed deploy and its retry)"
+  log "pinned image for this run: $image_url -> $pinned${E2E_IMAGE_LABEL:+ (requested ${E2E_IMAGE_LABEL})} (mutable tags can move between a failed deploy and its retry)"
 fi
 
 python3 "$ROOT/tests/lib/blueprint.py" render-plan "$work/render.yaml" "$SUFFIX" > "$work/plan.json"

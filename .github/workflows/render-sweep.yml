@@ -19,7 +19,7 @@ jobs:
       - name: Sweep
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
         run: |
           if [ -z "$RENDER_API_KEY" ]; then
             echo "::notice::RENDER_API_KEY not set; no e2e resources can exist to sweep."

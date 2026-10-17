@@ -60,3 +60,8 @@ triggers() {
   command -v shellcheck >/dev/null || { echo "shellcheck not installed"; false; }
   shellcheck "${REPO_ROOT}"/scripts/*.sh "${REPO_ROOT}"/tests/render/*.sh "${REPO_ROOT}"/tests/run.sh "${REPO_ROOT}"/tests/lib/tap-annotate.sh "${REPO_ROOT}"/tests/release/*.sh
 }
+
+@test "a run that skips the Render e2e says so in the job summary and a notice" {
+  run grep -c 'Render e2e NOT run' "${REPO_ROOT}/.github/workflows/release-test.yml"
+  [ "$output" -ge 2 ]
+}

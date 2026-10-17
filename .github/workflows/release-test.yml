@@ -56,6 +56,16 @@ jobs:
             *) echo "::error::unknown channel $CHANNEL"; exit 1 ;;
           esac
           if [ "${RENDER_ON_RELEASE:-}" = false ]; then render=false; fi
+          # A green run must say what it did not cover.
+          if [ "$render" != true ]; then
+            if [ "$CHANNEL" = nightly ]; then why="nightly is local-only by design"; else why="kill switch RENDER_E2E_ON_RELEASE=false"; fi
+            echo "::notice title=Render e2e NOT run::Local e2e only for $CHANNEL $SURE_TAG ($why). Real-Render phases did not run; this green is not a Render pass."
+            {
+              echo "### Render e2e was NOT run"
+              echo
+              echo "Channel \`$CHANNEL\`: $why. Only the local docker e2e ran, so this result says nothing about real Render."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           {
             echo "branches=$branches"
             echo "image=$image"

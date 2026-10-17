@@ -106,25 +106,40 @@ deploy_failure_looks_transient() {
 
 # report_oom_events <state.json>: full-run OOM evidence for every created
 # service, printed BEFORE teardown deletes it (Render keeps nothing for
-# deleted services). Best-effort; never changes the run's outcome. This is
-# what makes "no OOM this run" a queried fact instead of an absence of
-# printed failures.
+# deleted services). Best-effort; never changes the run's outcome. Pages
+# through ALL events (newest-first cursor pages) so "none found" means the
+# whole run was queried; a failed or truncated query is reported UNKNOWN,
+# never folded into "none found".
 report_oom_events() {
-  local state="$1" id out hits="" n=0
+  local state="$1" id out hits="" n=0 ok=0 unknown=""
   [ -f "$state" ] || { log "OOM events sweep: no state file"; return 0; }
   for id in $(jq -r '.services[]?' "$state"); do
     n=$(( n + 1 ))
-    if out="$(api GET "/services/$id/events?limit=30" 2>/dev/null)"; then
-      hits="$hits$(jq -r '.[] | .event | select((.type // "") + " " + ((.details // {}) | tostring) | test("oom|out.of.memory|memory.exceeded"; "i")) | "\(.timestamp) \(.type) \(.details | tostring | .[0:200])"' <<<"$out" 2>/dev/null)"
-    else
-      log "OOM events sweep: $id events unavailable"
-    fi
+    local cursor="" count page=0 truncated=0 failed=0
+    while :; do
+      if out="$(api GET "/services/$id/events?limit=100${cursor:+&cursor=$cursor}" 2>/dev/null)"; then
+        hits="$hits$(jq -r '.[] | .event | select((.type // "") + " " + ((.details // {}) | tostring) | test("oom|out.of.memory|memory.exceeded"; "i")) | "\(.timestamp) \(.type) \(.details | tostring | .[0:200])\n"' <<<"$out" 2>/dev/null)"
+        count="$(jq 'length' <<<"$out" 2>/dev/null)" || count=0
+        cursor="$(jq -r '.[-1].cursor // empty' <<<"$out" 2>/dev/null)"
+        page=$(( page + 1 ))
+        # Newest-first pages: a short page is the last one. Cap defensively.
+        { [ "${count:-0}" -lt 100 ] || [ -z "$cursor" ]; } && break
+        [ "$page" -lt 10 ] || { truncated=1; break; }
+      else
+        failed=1; break
+      fi
+    done
+    if [ "$failed" = 1 ]; then unknown="$unknown $id(query-failed)";
+    elif [ "$truncated" = 1 ]; then unknown="$unknown $id(>1000-events)";
+    else ok=$(( ok + 1 )); fi
   done
   if [ -n "$hits" ]; then
-    log "full-run OOM events sweep: $n service(s) queried, OOM events FOUND:"
-    redact_secrets <<<"  ${hits//$'\n'/$'\n'  }"
+    log "OOM events sweep: OOM events FOUND ($ok/$n service(s) fully queried${unknown:+; UNKNOWN for:$unknown}):"
+    redact_secrets <<<"  ${hits%$'\n'}" | sed 's/^/  /'
+  elif [ -n "$unknown" ]; then
+    log "OOM events sweep: $ok/$n service(s) fully queried (no OOM events in those); UNKNOWN for:$unknown - no whole-run OOM claim"
   else
-    log "full-run OOM events sweep: $n service(s) queried for the whole run, none found"
+    log "OOM events sweep: $n/$n service(s) fully queried for the whole run, none found"
   fi
 }
 

@@ -33,7 +33,7 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   [[ "$output" == *"pinned image for this run: ghcr.io/we-promise/sure:stable -> ghcr.io/we-promise/sure@sha256:aaa"* ]]
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
   [[ "$output" == *"pass: demo-user smoke"* ]]
-  [[ "$output" == *"full-run OOM events sweep: 2 service(s) queried for the whole run, none found"* ]]
+  [[ "$output" == *"OOM events sweep: 2/2 service(s) fully queried for the whole run, none found"* ]]
   ! calls | grep -q '^GET /logs'
   calls | grep -q '^DELETE /services/srv-web'
   calls | grep -q '^DELETE /postgres/pg-1'
@@ -42,8 +42,16 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
 @test "an OOM event anywhere in the run is reported, not swallowed" {
   STUB_EVENTS_OOM=1 run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
-  [[ "$output" == *"full-run OOM events sweep: 2 service(s) queried, OOM events FOUND:"* ]]
+  [[ "$output" == *"OOM events sweep: OOM events FOUND"* ]]
   [[ "$output" == *"oomKilled"* ]]
+}
+
+@test "an unavailable events query is UNKNOWN, never 'none found'" {
+  STUB_EVENTS_UNAVAILABLE=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"UNKNOWN for: srv-web(query-failed) srv-worker(query-failed)"* ]]
+  [[ "$output" == *"no whole-run OOM claim"* ]]
+  [[ "$output" != *"none found"* ]]
 }
 
 @test "first deploy fails with a transient DB signature: diagnostics preserved, one retry of the same config, then green" {

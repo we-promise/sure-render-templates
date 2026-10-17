@@ -10,6 +10,7 @@
 #   STUB_DEPLOY_FAIL=repeated     like transient, but the retry deploy also
 #       ends update_failed; exactly one retry may happen, then red
 #   STUB_EVENTS_OOM   service events include an OOM kill
+#   STUB_EVENTS_UNAVAILABLE   the events endpoint answers HTTP 500
 set -u
 out=""; method=GET; url=""; body=""
 while [ $# -gt 0 ]; do
@@ -43,8 +44,9 @@ case "$method $path" in
     if [ -n "${STUB_DEPLOY_FAIL:-}" ]; then resp='{"status":"update_failed"}'; else resp='{"status":"live"}'; fi ;;
   "POST /services/"*"/deploys") resp='{"id":"dep-retry"}' ;;
   "GET /services/"*"/deploys?limit=3") resp='[{"deploy":{"id":"dep-1","status":"live","createdAt":"t0","trigger":"api"}}]' ;;
-  "GET /services/"*"/events?limit=30")
-    if [ -n "${STUB_EVENTS_OOM:-}" ]; then
+  "GET /services/"*"/events?limit="*)
+    if [ -n "${STUB_EVENTS_UNAVAILABLE:-}" ]; then code=500; resp='{"message":"boom"}'
+    elif [ -n "${STUB_EVENTS_OOM:-}" ]; then
       resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{"reason":{"oomKilled":true}}},"cursor":"c"}]'
     else
       resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{}},"cursor":"c"}]'

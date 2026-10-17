@@ -17,7 +17,10 @@ header Render's proxy would add, because the Blueprint sets RAILS_FORCE_SSL)
 and by the Render e2e (real https URL). Cookies are kept in a hand-rolled jar
 that ignores the Secure flag, so the same flow works over local http.
 
-Prints one line per step; exits non-zero on the first failure.
+Prints one line per step. Most failures stop the run (the next step needs
+them). "Soft" failures (the dashboard after onboarding) are recorded, the
+independent steps after them still run, and the exit status is non-zero at the
+end, so nothing is reported as passing that did not pass.
 """
 import datetime
 import html
@@ -152,6 +155,20 @@ def fail(msg):
     sys.exit(1)
 
 
+SOFT_FAILURES = []
+
+
+def soft_fail(msg):
+    print(f"FAIL {msg}")
+    SOFT_FAILURES.append(msg)
+
+
+def finish():
+    if SOFT_FAILURES:
+        print(f"FAILED: {len(SOFT_FAILURES)} check(s) failed: " + "; ".join(SOFT_FAILURES))
+        sys.exit(1)
+
+
 def ok(msg):
     print(f"ok   {msg}")
 
@@ -169,6 +186,7 @@ def main():
 
     if "--demo" in args:
         demo_flow(base, proto)
+        finish()
         return
 
     anon = Client(base, proto)
@@ -226,6 +244,7 @@ def main():
     ok("log-in with the new account works in a fresh session")
 
     new_user_flow(fresh)
+    finish()
 
 
 def new_user_flow(c):
@@ -247,8 +266,15 @@ def new_user_flow(c):
     nxt = submit(c, "/onboarding/goals", r"^/users/", {}, "onboarding (goals)")
     status, loc, _ = c.request("GET", "/")
     if status != 200:
-        fail(f"after onboarding GET / returned {status} -> {loc!r} (expected the dashboard)")
-    ok(f"onboarding completed (goals -> {nxt}), dashboard is 200")
+        soft_fail(f"after onboarding GET / returned {status} -> {loc!r} (expected the dashboard)")
+        # Evidence only, not a retry-to-green: is it a blip or does it stay down?
+        seen = []
+        for _ in range(3):
+            time.sleep(5)
+            seen.append(str(c.request("GET", "/")[0]))
+        print(f"info dashboard re-checked 3x, 5s apart: {', '.join(seen)} (the failure above stands)")
+    else:
+        ok(f"onboarding completed (goals -> {nxt}), dashboard is 200")
 
     # A manual cash account with an opening balance.
     acct = f"Smoke Cash {secrets.token_hex(2)}"

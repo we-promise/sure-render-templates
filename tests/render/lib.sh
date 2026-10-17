@@ -22,11 +22,11 @@ api() {
   local method="$1" path="$2" body="${3:-}" out code
   out="$(mktemp)"
   if [ -n "$body" ]; then
-    code="$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "${RENDER_API}${path}" \
+    code="$(curl -sS --connect-timeout 10 --max-time 60 -o "$out" -w '%{http_code}' -X "$method" "${RENDER_API}${path}" \
       -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json' \
       -H 'Content-Type: application/json' --data-binary "$body")"
   else
-    code="$(curl -sS -o "$out" -w '%{http_code}' -X "$method" "${RENDER_API}${path}" \
+    code="$(curl -sS --connect-timeout 10 --max-time 60 -o "$out" -w '%{http_code}' -X "$method" "${RENDER_API}${path}" \
       -H "Authorization: Bearer ${RENDER_API_KEY}" -H 'Accept: application/json')"
   fi
   if [[ "$code" != 2* ]]; then
@@ -71,9 +71,9 @@ dump_diagnostics() {
       jq -r '.[] | .event | "\(.timestamp) \(.type) \(.details | tostring | .[0:300])"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"
-    log "::group::diagnostics service $id: last 150 log lines"
+    log "::group::diagnostics service $id: last 100 log lines"
     if [ -z "$owner" ]; then echo "unavailable: no owner id"
-    elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=150" 2>&1)"; then
+    elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=100" 2>&1)"; then
       jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"

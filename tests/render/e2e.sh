@@ -126,13 +126,19 @@ done
 # run_job <service-id> <label> <command> [timeout-s]: a Render one-off job on the
 # service's image, env and plan (billed per second while it runs).
 run_job() {
-  local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline
+  local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline errs=0
   jid="$(api POST "/services/$sid/jobs" "$(jq -nc --arg c "$cmd" '{startCommand: $c}')" | jq -r '.id')"
   if [ -z "$jid" ] || [ "$jid" = null ]; then log "ERROR: could not start job: $label"; return 1; fi
   log "job $label ($jid) started"
   deadline=$((SECONDS + timeout))
   while :; do
-    st="$(api GET "/services/$sid/jobs/$jid" | jq -r '.status')"
+    if st="$(api GET "/services/$sid/jobs/$jid" 2>/dev/null | jq -r '.status')" && [ -n "$st" ] && [ "$st" != null ]; then
+      errs=0
+    else
+      st=unknown
+      errs=$((errs + 1))
+      if (( errs >= 6 )); then log "ERROR: job $label status unreadable 6 times in a row"; return 1; fi
+    fi
     case "$st" in
       succeeded) log "job $label succeeded"; return 0 ;;
       failed|canceled) log "ERROR: job $label ended $st (see the job's logs in the Render dashboard)"; return 1 ;;

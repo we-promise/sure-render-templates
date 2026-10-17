@@ -271,7 +271,10 @@ def new_user_flow(c):
         seen = []
         for _ in range(3):
             time.sleep(5)
-            seen.append(str(c.request("GET", "/")[0]))
+            try:
+                seen.append(str(c.request("GET", "/")[0]))
+            except Exception as e:  # evidence only: record what was seen, keep going
+                seen.append(type(e).__name__)
         print(f"info dashboard re-checked 3x, 5s apart: {', '.join(seen)} (the failure above stands)")
     else:
         ok(f"onboarding completed (goals -> {nxt}), dashboard is 200")

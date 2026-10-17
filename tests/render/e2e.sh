@@ -58,7 +58,8 @@ else
     digest="$(docker buildx imagetools inspect "$image_url" --format '{{json .Manifest.Digest}}' | tr -d '"')"       || die "could not resolve a digest for $image_url (need docker or E2E_IMAGE_DIGEST=sha256:...)"
   fi
   [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "bad image digest for $image_url: '$digest'"
-  pinned="${image_url%%@*}@$digest"
+  base="$(sed -E 's/(:[^:@/]*)?(@.*)?$//' <<<"$image_url")"
+  pinned="$base@$digest"
   sed -i "s|url: $image_url|url: $pinned|g" "$work/render.yaml"
   log "pinned image for this run: $image_url -> $pinned (mutable tags can move between a failed deploy and its retry)"
 fi

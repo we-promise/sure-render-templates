@@ -9,6 +9,7 @@ what users deploy. Only the Blueprint features this repo uses are supported;
 anything else fails loudly instead of being silently dropped.
 """
 import json
+import os
 import secrets
 import sys
 
@@ -22,6 +23,14 @@ SUPPORTED_SERVICE_TYPES = {"web", "worker", "keyvalue"}
 # Existing Blueprint-managed services keep their current plan when it is omitted.
 # https://render.com/docs/blueprint-spec#plan
 NEW_SERVICE_DEFAULT_PLAN = "starter"
+
+# Test-only plan overrides for the e2e harness (Render API / workflow input,
+# never part of a Blueprint): E2E_PLAN_WEB / E2E_PLAN_WORKER replace the
+# creation default for services of that type, e.g. "standard" (1c-2g) to
+# probe whether a failure is memory-related. An explicit plan in the
+# Blueprint always wins. Legacy names and new plan IDs are interchangeable:
+# https://render.com/docs/compute-plans
+OVERRIDE_ENV = {"web": "E2E_PLAN_WEB", "worker": "E2E_PLAN_WORKER"}
 
 
 def load(path):
@@ -157,7 +166,11 @@ def render_plan(path, suffix):
         plan["keyvalues"].append(resource)
     for svc in image_services(bp):
         env = resolve_env(bp, svc, "@@DATABASE_URL@@", "@@REDIS_URL@@", generated)
-        details = {"runtime": "image", "plan": svc.get("plan", NEW_SERVICE_DEFAULT_PLAN)}
+        if "plan" in svc:
+            svc_plan = svc["plan"]
+        else:
+            svc_plan = os.environ.get(OVERRIDE_ENV.get(svc["type"], ""), "") or NEW_SERVICE_DEFAULT_PLAN
+        details = {"runtime": "image", "plan": svc_plan}
         if svc.get("healthCheckPath"):
             details["healthCheckPath"] = svc["healthCheckPath"]
         if svc.get("disk"):

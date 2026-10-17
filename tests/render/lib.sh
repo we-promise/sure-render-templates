@@ -84,5 +84,20 @@ dump_diagnostics() {
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"
   done
+  # One-off jobs (migrations, checks, demo data): status plus logs, which
+  # disappear with the service at teardown.
+  local pair sid jid
+  for pair in $(jq -r '.jobs[]?' "$state"); do
+    sid="${pair%%/*}"; jid="${pair##*/}"
+    log "::group::diagnostics job $jid (on $sid)"
+    if out="$(api GET "/services/$sid/jobs/$jid" 2>&1)"; then
+      jq -r '"status=\(.status // "?") startedAt=\(.startedAt // "?") finishedAt=\(.finishedAt // "?")"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+    else echo "unavailable: $out" | head -c 600; fi
+    if [ -z "$owner" ]; then echo "unavailable: no owner id"
+    elif out="$(api GET "/logs?ownerId=$owner&resource=$jid&direction=backward&limit=100" 2>&1)"; then
+      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+    else echo "unavailable: $out" | head -c 600; fi
+    log "::endgroup::"
+  done
   return 0
 }

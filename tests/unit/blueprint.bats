@@ -78,3 +78,34 @@ assert [s["serviceDetails"]["plan"] for s in p["services"]] == ["1c-2g", "standa
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "render-plan honors E2E_PLAN_WEB/E2E_PLAN_WORKER env overrides" {
+  E2E_PLAN_WEB=standard E2E_PLAN_WORKER=1c-2g \
+    python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${REPO_ROOT}/render.yaml" t0 > "$WORK/plan.json"
+  run python3 - "$WORK/plan.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+assert [(s["blueprintName"], s["serviceDetails"]["plan"]) for s in p["services"]] == [
+    ("sure-web", "standard"), ("sure-worker", "1c-2g")]
+PY
+  [ "$status" -eq 0 ]
+}
+
+@test "an explicit Blueprint plan beats the e2e env override" {
+  python3 - "${REPO_ROOT}/render.yaml" "$WORK/render.yaml" <<'PY'
+import sys, yaml
+bp = yaml.safe_load(open(sys.argv[1]))
+for s in bp["services"]:
+    if s["type"] == "web":
+        s["plan"] = "1c-2g"
+yaml.safe_dump(bp, open(sys.argv[2], "w"))
+PY
+  E2E_PLAN_WEB=standard E2E_PLAN_WORKER=standard \
+    python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "$WORK/render.yaml" t0 > "$WORK/plan.json"
+  run python3 - "$WORK/plan.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+assert [s["serviceDetails"]["plan"] for s in p["services"]] == ["1c-2g", "standard"]
+PY
+  [ "$status" -eq 0 ]
+}

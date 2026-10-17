@@ -9,6 +9,9 @@
 #   E2E_BRANCH        deploy branch (default sure-no-ai)
 #   E2E_RUN           run id used in resource names (default: GITHUB_RUN_ID or a timestamp)
 #   E2E_CONFIRM_COST  must be "yes": the caller has seen the cost estimate
+#   E2E_PLAN_WEB / E2E_PLAN_WORKER  e2e-only plan override for that service
+#     type (legacy API name, e.g. "standard" = 1c-2g); unset = 512 MB default.
+#     One-off jobs inherit the web service's plan (render.com/docs/jobs).
 #   E2E_KEEP=1        skip teardown (debugging only; the sweeper still deletes after 2h)
 #   RENDER_API_KEY, optional RENDER_OWNER_ID / RENDER_REGION
 set -euo pipefail
@@ -101,7 +104,7 @@ while IFS= read -r row; do
     web_url="$(jq -r '.service.serviceDetails.url' <<<"$resp")"
     web_sid="$sid"
   fi
-  log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid)"
+  log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid) plan=$(jq -r .serviceDetails.plan <<<"$row")"
 done < <(jq -c '.services[]' "$work/plan.json")
 
 for sid in "${!deploy_of[@]}"; do
@@ -129,6 +132,7 @@ run_job() {
   local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline errs=0
   jid="$(api POST "/services/$sid/jobs" "$(jq -nc --arg c "$cmd" '{startCommand: $c}')" | jq -r '.id')"
   if [ -z "$jid" ] || [ "$jid" = null ]; then log "ERROR: could not start job: $label"; return 1; fi
+  remember jobs "$sid/$jid"
   log "job $label ($jid) started"
   deadline=$((SECONDS + timeout))
   while :; do

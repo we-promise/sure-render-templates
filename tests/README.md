@@ -44,12 +44,12 @@ From [render.com/pricing](https://render.com/pricing), billed per second while r
 | --- | --- | --- |
 | sure-web | starter | $7 |
 | sure-worker | starter | $7 |
-| sure-redis | Key Value starter | $10 |
-| sure-postgres | basic-1gb | $19 |
+| sure-redis | Key Value starter (256mb) | $6 |
+| sure-postgres | basic-1gb (0.5c-1g) | $19 |
 | sure-storage disk | 10 GB × $0.25 | $2.50 |
-| **total** | | **$45.50/mo ≈ $0.063/hour** |
+| **total** | | **$41.50/mo ≈ $0.058/hour** |
 
-A run takes about 30-60 minutes including provisioning, so it costs about $0.03-0.07. Three layers stop resources from leaking:
+A run takes about 30-60 minutes including provisioning, so it costs about $0.03-0.06. Three layers stop resources from leaking:
 
 1. `e2e.sh` tears down on exit.
 2. The workflow's `Teardown` step runs `if: always()`, which covers cancel and timeout.
@@ -58,6 +58,8 @@ A run takes about 30-60 minutes including provisioning, so it costs about $0.03-
 `teardown.sh` also lists resources by name afterwards and fails the run if anything with the run's suffix is still there.
 
 For new test web/worker resources, `tests/lib/blueprint.py` explicitly uses the API's `starter` identifier when the Blueprint omits `plan`, matching Render's paid 0.5 CPU / 512 MB Blueprint creation default. This is only a creation-time test adapter; it does not resize existing services. Unit tests cover omitted and explicitly overridden plans. The cost estimate above therefore keeps the same resource sizes.
+
+For a one-off memory probe, the e2e (never a Blueprint deploy) accepts plan overrides: set `E2E_PLAN_WEB` / `E2E_PLAN_WORKER` when running `tests/render/e2e.sh` by hand, or pass the `web_plan` / `worker_plan` inputs to the `render e2e` or `release test` workflows. Values use Render's legacy API plan names, e.g. `standard` = 1c-2g (2 GB, $25/mo list); an explicit `plan` in the Blueprint always wins. One-off jobs (migrations, checks, demo data) inherit the web service's plan ([render.com/docs/jobs](https://render.com/docs/jobs)), so a web override also resizes those jobs. With the web at `standard` and everything else at defaults a run provisions $59.50/mo ≈ $0.083/hour.
 
 The API creates the Blueprint's resources one by one. Render has no public API to instantiate a Blueprint. Explicit plans, env vars, disk, health check, and worker command come from the branch's `render.yaml`; omitted web/worker plans use the documented creation default described above.
 

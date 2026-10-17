@@ -20,6 +20,14 @@ on:
       sure_tag:
         description: 'Release tag (e.g. v0.7.4) or, for nightly, the image digest (sha256:...)'
         required: true
+      web_plan:
+        description: 'Optional e2e-only web plan override (e.g. "standard" = 1c-2g); blank = 512 MB default'
+        required: false
+        default: ''
+      worker_plan:
+        description: 'Optional e2e-only worker plan override; blank = 512 MB default'
+        required: false
+        default: 
 
 permissions:
   contents: read
@@ -121,4 +129,6 @@ jobs:
     with:
       branch: ${{ matrix.branch }}
       confirm_cost: 'yes'
+      web_plan: ${{ inputs.web_plan }}
+      worker_plan: ${{ inputs.worker_plan }}
     secrets: inherit

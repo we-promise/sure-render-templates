@@ -54,6 +54,12 @@ owner_id() {
 E2E_NAME_RE='^(sure-[a-z0-9-]+|alphaclaw)-e2e-[a-z0-9]+$'
 
 
+# redact_secrets: scrub credentials before third-party log text enters the
+# job log (connection strings, password/token query params).
+redact_secrets() {
+  sed -E 's#(postgres(ql)?|redis|https?)://[^/@[:space:]]+@#\1://***@#g; s/([?&](password|passwd|pwd|secret|token|api_key|apikey)=)[^ &]+/\1***/gi'
+}
+
 # dump_service_diagnostics <service-id> <owner-id>: deploys, events, logs.
 dump_service_diagnostics() {
   local id="$1" owner="${2:-}" out
@@ -70,13 +76,13 @@ dump_service_diagnostics() {
   log "::group::diagnostics service $id: last 100 log lines"
   if [ -z "$owner" ]; then echo "unavailable: no owner id"
   elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=100" 2>&1)"; then
-    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
   else echo "unavailable: $out" | head -c 600; fi
   log "::endgroup::"
   log "::group::diagnostics service $id: 5xx request logs"
   if [ -z "$owner" ]; then echo "unavailable: no owner id"
   elif out="$(api GET "/logs?ownerId=$owner&resource=$id&type=request&statusCode=5*&direction=backward&limit=50" 2>&1)"; then
-    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
   else echo "unavailable: $out" | head -c 600; fi
   log "::endgroup::"
 }
@@ -87,10 +93,39 @@ dump_service_diagnostics() {
 # alone does not qualify - auth and config faults raise it too, and those are
 # persistent. Gates the single deploy retry so a genuine app fault stays red.
 deploy_failure_looks_transient() {
-  local sid="$1" owner="${2:-}" out
+  local sid="$1" owner="${2:-}" out matched
   [ -n "$owner" ] || return 1
   out="$(api GET "/logs?ownerId=$owner&resource=$sid&direction=backward&limit=100" 2>/dev/null)" || return 1
-  jq -r '.logs[]?.message' <<<"$out" 2>/dev/null     | grep -qiE 'connection refused|connection timed out|timeout expired'
+  matched="$(jq -r '.logs[]?.message' <<<"$out" 2>/dev/null | grep -iE 'connection refused|connection timed out|timeout expired' | head -3)" || true
+  [ -n "$matched" ] || return 1
+  # The qualifying evidence belongs in the job log itself: the later
+  # preservation dump can fail (seen: Render logs API 503), and the matched
+  # lines are the whole basis for the retry. Sanitized: these are app logs.
+  log "$sid transient-looking failure evidence: $(tr '\n' ' ' <<<"$matched" | redact_secrets | cut -c1-300)"
+}
+
+# report_oom_events <state.json>: full-run OOM evidence for every created
+# service, printed BEFORE teardown deletes it (Render keeps nothing for
+# deleted services). Best-effort; never changes the run's outcome. This is
+# what makes "no OOM this run" a queried fact instead of an absence of
+# printed failures.
+report_oom_events() {
+  local state="$1" id out hits="" n=0
+  [ -f "$state" ] || { log "OOM events sweep: no state file"; return 0; }
+  for id in $(jq -r '.services[]?' "$state"); do
+    n=$(( n + 1 ))
+    if out="$(api GET "/services/$id/events?limit=30" 2>/dev/null)"; then
+      hits="$hits$(jq -r '.[] | .event | select((.type // "") + " " + ((.details // {}) | tostring) | test("oom|out.of.memory|memory.exceeded"; "i")) | "\(.timestamp) \(.type) \(.details | tostring | .[0:200])"' <<<"$out" 2>/dev/null)"
+    else
+      log "OOM events sweep: $id events unavailable"
+    fi
+  done
+  if [ -n "$hits" ]; then
+    log "full-run OOM events sweep: $n service(s) queried, OOM events FOUND:"
+    redact_secrets <<<"  ${hits//$'\n'/$'\n'  }"
+  else
+    log "full-run OOM events sweep: $n service(s) queried for the whole run, none found"
+  fi
 }
 
 # dump_diagnostics <state.json> <owner-id>: best-effort evidence for a failed
@@ -114,7 +149,7 @@ dump_diagnostics() {
     else echo "unavailable: $out" | head -c 600; fi
     if [ -z "$owner" ]; then echo "unavailable: no owner id"
     elif out="$(api GET "/logs?ownerId=$owner&resource=$jid&direction=backward&limit=100" 2>&1)"; then
-      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"
   done

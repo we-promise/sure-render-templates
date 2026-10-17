@@ -79,6 +79,8 @@ teardown() {
   phase_report || rc=1
   [ "$rc" -ne 0 ] || log "PASS $BRANCH on Render (all phases passed)"
   # Evidence first: the services (and their logs) vanish in the next step.
+  # The OOM sweep runs on EVERY run so "no OOM" is a queried fact, not a gap.
+  report_oom_events "$STATE" || true
   if [ "$rc" -ne 0 ]; then dump_diagnostics "$STATE" "${owner:-}" || true; fi
   if [ "${E2E_KEEP:-}" = "1" ]; then
     log "E2E_KEEP=1: leaving resources up (state: $STATE)"

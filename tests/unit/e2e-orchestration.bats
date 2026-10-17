@@ -33,15 +33,26 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   [[ "$output" == *"pinned image for this run: ghcr.io/we-promise/sure:stable -> ghcr.io/we-promise/sure@sha256:aaa"* ]]
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
   [[ "$output" == *"pass: demo-user smoke"* ]]
+  [[ "$output" == *"full-run OOM events sweep: 2 service(s) queried for the whole run, none found"* ]]
   ! calls | grep -q '^GET /logs'
   calls | grep -q '^DELETE /services/srv-web'
   calls | grep -q '^DELETE /postgres/pg-1'
+}
+
+@test "an OOM event anywhere in the run is reported, not swallowed" {
+  STUB_EVENTS_OOM=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"full-run OOM events sweep: 2 service(s) queried, OOM events FOUND:"* ]]
+  [[ "$output" == *"oomKilled"* ]]
 }
 
 @test "first deploy fails with a transient DB signature: diagnostics preserved, one retry of the same config, then green" {
   STUB_DEPLOY_FAIL=transient run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
   [[ "$output" == *"preserving its diagnostics before one retry of the SAME image/config"* ]]
+  [[ "$output" == *"transient-looking failure evidence:"* ]]
+  [[ "$output" == *"postgres://***@"* ]]
+  [[ "$output" != *"SUPERSECRETPW"* ]]
   [[ "$output" == *"retry deploy dep-retry started"* ]]
   [[ "$output" == *"verdict includes one retry"* ]]
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]

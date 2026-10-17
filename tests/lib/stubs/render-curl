@@ -9,6 +9,7 @@
 #       generic logs; no retry may happen
 #   STUB_DEPLOY_FAIL=repeated     like transient, but the retry deploy also
 #       ends update_failed; exactly one retry may happen, then red
+#   STUB_EVENTS_OOM   service events include an OOM kill
 set -u
 out=""; method=GET; url=""; body=""
 while [ $# -gt 0 ]; do
@@ -42,10 +43,15 @@ case "$method $path" in
     if [ -n "${STUB_DEPLOY_FAIL:-}" ]; then resp='{"status":"update_failed"}'; else resp='{"status":"live"}'; fi ;;
   "POST /services/"*"/deploys") resp='{"id":"dep-retry"}' ;;
   "GET /services/"*"/deploys?limit=3") resp='[{"deploy":{"id":"dep-1","status":"live","createdAt":"t0","trigger":"api"}}]' ;;
-  "GET /services/"*"/events?limit=30") resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{}},"cursor":"c"}]' ;;
+  "GET /services/"*"/events?limit=30")
+    if [ -n "${STUB_EVENTS_OOM:-}" ]; then
+      resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{"reason":{"oomKilled":true}}},"cursor":"c"}]'
+    else
+      resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{}},"cursor":"c"}]'
+    fi ;;
   "GET /logs?"*)
     if [ "${STUB_DEPLOY_FAIL:-}" = transient ] || [ "${STUB_DEPLOY_FAIL:-}" = repeated ]; then
-      resp='{"hasMore":false,"logs":[{"id":"l1","timestamp":"t2","message":"PG::ConnectionBad: connection to server at 10.0.0.1, port 5432 failed: Connection refused"}]}'
+      resp='{"hasMore":false,"logs":[{"id":"l1","timestamp":"t2","message":"PG::ConnectionBad: could not connect to postgres://e2e:SUPERSECRETPW@10.0.0.1:5432/sure failed: Connection refused"}]}'
     else
       resp='{"hasMore":false,"logs":[{"id":"l1","timestamp":"t2","message":"STUB LOG LINE"}]}'
     fi ;;

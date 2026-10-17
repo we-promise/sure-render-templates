@@ -77,6 +77,12 @@ dump_diagnostics() {
       jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"
+    log "::group::diagnostics service $id: 5xx request logs"
+    if [ -z "$owner" ]; then echo "unavailable: no owner id"
+    elif out="$(api GET "/logs?ownerId=$owner&resource=$id&type=request&statusCode=5*&direction=backward&limit=50" 2>&1)"; then
+      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+    else echo "unavailable: $out" | head -c 600; fi
+    log "::endgroup::"
   done
   return 0
 }

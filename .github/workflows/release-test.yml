@@ -20,6 +20,14 @@ on:
       sure_tag:
         description: 'Release tag (e.g. v0.7.4) or, for nightly, the image digest (sha256:...)'
         required: true
+      web_plan:
+        description: 'Optional e2e-only web plan override (e.g. "standard" = 1c-2g); blank = 512 MB default'
+        required: false
+        default: ''
+      worker_plan:
+        description: 'Optional e2e-only worker plan override; blank = 512 MB default'
+        required: false
+        default: 
 
 permissions:
   contents: read
@@ -33,6 +41,8 @@ jobs:
       branches: ${{ steps.plan.outputs.branches }}
       image: ${{ steps.plan.outputs.image }}
       render: ${{ steps.plan.outputs.render }}
+      image_digest: ${{ steps.plan.outputs.image_digest }}
+      image_label: ${{ steps.plan.outputs.image_label }}
     steps:
       - id: plan
         env:
@@ -70,19 +80,25 @@ jobs:
             echo "branches=$branches"
             echo "image=$image"
             echo "render=$render"
+            echo "image_label=$SURE_TAG"
           } >> "$GITHUB_OUTPUT"
           echo "Render e2e: $render"
-          # The deploy branches pin :stable / :latest. Say which build that is now.
+          # The deploy branches track :stable / :latest. Resolve the REQUESTED
+          # release's digest: the Render e2e pins it, so a moved channel tag
+          # can never make the paid run test a different build than requested.
+          image_digest=""
           if [ "$CHANNEL" != nightly ]; then
             version="${SURE_TAG#v}"
             moving="$(docker buildx imagetools inspect "$img:$CHANNEL" --format '{{json .Manifest.Digest}}' | tr -d '"')"
             pinned="$(docker buildx imagetools inspect "$img:$version" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+            image_digest="$pinned"
             if [ "$moving" = "$pinned" ]; then
               echo "::notice::$img:$CHANNEL is $SURE_TAG ($moving)"
             else
-              echo "::warning::$img:$CHANNEL ($moving) is no longer $SURE_TAG ($pinned); testing what :$CHANNEL points to now"
+              echo "::warning::$img:$CHANNEL ($moving) is no longer $SURE_TAG ($pinned); the Render e2e pins the requested $SURE_TAG digest, the local e2e runs the branch's moved :$CHANNEL tag"
             fi
           fi
+          echo "image_digest=$image_digest" >> "$GITHUB_OUTPUT"
 
   e2e-local:
     name: local e2e (${{ matrix.branch }})
@@ -121,4 +137,8 @@ jobs:
     with:
       branch: ${{ matrix.branch }}
       confirm_cost: 'yes'
+      web_plan: ${{ inputs.web_plan }}
+      worker_plan: ${{ inputs.worker_plan }}
+      image_digest: ${{ needs.plan.outputs.image_digest }}
+      image_label: ${{ needs.plan.outputs.image_label }}
     secrets: inherit

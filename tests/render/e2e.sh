@@ -9,6 +9,13 @@
 #   E2E_BRANCH        deploy branch (default sure-no-ai)
 #   E2E_RUN           run id used in resource names (default: GITHUB_RUN_ID or a timestamp)
 #   E2E_CONFIRM_COST  must be "yes": the caller has seen the cost estimate
+#   E2E_PLAN_WEB / E2E_PLAN_WORKER  e2e-only plan override for that service
+#     type (legacy API name, e.g. "standard" = 1c-2g); unset = 512 MB default.
+#     One-off jobs inherit the web service's plan (render.com/docs/jobs).
+#   E2E_IMAGE_DIGEST  sha256:... to pin the image to (the requested release's
+#     digest when the caller knows it); unset = resolve the branch's tag with
+#     docker (mutable tags move; see the pin note below).
+#   E2E_IMAGE_LABEL   optional requested-release label logged with the digest.
 #   E2E_KEEP=1        skip teardown (debugging only; the sweeper still deletes after 2h)
 #   RENDER_API_KEY, optional RENDER_OWNER_ID / RENDER_REGION
 set -euo pipefail
@@ -31,6 +38,34 @@ DEPLOY_TIMEOUT="${E2E_DEPLOY_TIMEOUT:-1500}"
 
 work="$(mktemp -d)"
 git -C "$ROOT" show "refs/remotes/origin/$BRANCH:render.yaml" > "$work/render.yaml"
+
+# Pin the image to a digest in the WORK COPY (the deploy branch is untouched).
+# The branches track mutable tags (:stable / :latest) and the deploy retry
+# below re-pulls the tag, so without a pin the retry could run a different
+# build than the failed first attempt and the comparison would be void.
+image_url="$(python3 - "$work/render.yaml" <<'PY'
+import sys, yaml
+bp = yaml.safe_load(open(sys.argv[1]))
+urls = sorted({s["image"]["url"] for s in bp.get("services", []) if s.get("runtime") == "image"})
+if len(urls) != 1:
+    sys.exit(f"expected exactly one image URL across image services, got {urls}")
+print(urls[0])
+PY
+)" || die "could not read the image URL from $work/render.yaml"
+if [[ "$image_url" == *@sha256:* ]]; then
+  log "image already pinned: $image_url"
+else
+  digest="${E2E_IMAGE_DIGEST:-}"
+  if [ -z "$digest" ]; then
+    digest="$(docker buildx imagetools inspect "$image_url" --format '{{json .Manifest.Digest}}' | tr -d '"')"       || die "could not resolve a digest for $image_url (need docker or E2E_IMAGE_DIGEST=sha256:...)"
+  fi
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "bad image digest for $image_url: '$digest'"
+  base="$(sed -E 's/(:[^:@/]*)?(@.*)?$//' <<<"$image_url")"
+  pinned="$base@$digest"
+  sed -i "s|url: $image_url|url: $pinned|g" "$work/render.yaml"
+  log "pinned image for this run: $image_url -> $pinned${E2E_IMAGE_LABEL:+ (requested ${E2E_IMAGE_LABEL})} (mutable tags can move between a failed deploy and its retry)"
+fi
+
 python3 "$ROOT/tests/lib/blueprint.py" render-plan "$work/render.yaml" "$SUFFIX" > "$work/plan.json"
 echo '{"postgres":[],"keyvalue":[],"services":[]}' > "$STATE"
 
@@ -44,6 +79,8 @@ teardown() {
   phase_report || rc=1
   [ "$rc" -ne 0 ] || log "PASS $BRANCH on Render (all phases passed)"
   # Evidence first: the services (and their logs) vanish in the next step.
+  # The OOM sweep runs on EVERY run so "no OOM" is a queried fact, not a gap.
+  report_oom_events "$STATE" || true
   if [ "$rc" -ne 0 ]; then dump_diagnostics "$STATE" "${owner:-}" || true; fi
   if [ "${E2E_KEEP:-}" = "1" ]; then
     log "E2E_KEEP=1: leaving resources up (state: $STATE)"
@@ -57,7 +94,33 @@ trap teardown EXIT
 
 owner="$(owner_id)"
 log "branch=$BRANCH suffix=$SUFFIX owner=$owner region=$RENDER_REGION"
-log "cost while running: web starter \$7 + worker starter \$7 + key value starter \$10 + postgres basic-1gb \$19 + 10 GB disk \$2.50 = \$45.50/mo (~\$0.063/h), prorated per second"
+# Cost line derived from the generated plan (render.com/pricing list rates,
+# prorated per second while resources exist). Unknown plans are called out
+# rather than silently priced at the 512 MB default; one-off jobs bill per
+# second at the web service's plan rate on top.
+rate_cents() { # rate_cents <kind> <api-plan|sizeGB> -> monthly cents or empty
+  case "$1" in
+    service) case "$2" in starter|0.5c-512mb) echo 700 ;; standard|1c-2g) echo 2500 ;; esac ;;
+    kv)      case "$2" in starter|256mb) echo 1000 ;; esac ;;
+    pg)      case "$2" in basic_1gb|0.5c-1g) echo 1900 ;; esac ;;
+    disk)    echo $(( 25 * $2 )) ;;
+  esac
+}
+total_cents=0; unknown_rate=0; cost_parts=""
+while IFS=$'\t' read -r kind label plan; do
+  cents="$(rate_cents "$kind" "$plan")"
+  if [ -n "$cents" ]; then
+    total_cents=$(( total_cents + cents ))
+    cost_parts+="${cost_parts:+, }$label $plan \$$(awk "BEGIN{printf \"%.2f\", $cents/100}")"
+  else
+    unknown_rate=1
+    cost_parts+="${cost_parts:+, }$label $plan (unpriced)"
+  fi
+done < <(jq -r '(.services[] | ["service", .blueprintName, .serviceDetails.plan] | @tsv),
+               (.services[] | select(.serviceDetails.disk) | ["disk", .serviceDetails.disk.name, (.serviceDetails.disk.sizeGB | tostring)] | @tsv),
+               (.keyvalues[] | ["kv", .blueprintName, .plan] | @tsv),
+               (.databases[] | ["pg", .blueprintName, .plan] | @tsv)' "$work/plan.json")
+log "cost while running: $cost_parts = \$$(awk "BEGIN{printf \"%.2f\", $total_cents/100}")/mo (~\$$(awk "BEGIN{printf \"%.3f\", $total_cents/72000}")/h), prorated per second, plus one-off jobs at the web plan rate$([ "$unknown_rate" = 1 ] && echo '; some plans unpriced - see render.com/pricing')"
 
 # Datastores first; services need their connection strings.
 pg_url=""; kv_url=""
@@ -101,11 +164,19 @@ while IFS= read -r row; do
     web_url="$(jq -r '.service.serviceDetails.url' <<<"$resp")"
     web_sid="$sid"
   fi
-  log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid)"
+  log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid) plan=$(jq -r .serviceDetails.plan <<<"$row")"
 done < <(jq -c '.services[]' "$work/plan.json")
 
+# A first deploy can lose the new-datastore startup race (observed: Render's
+# API said "available", the app then died in db:prepare with PG::ConnectionBad
+# and the deploy ended update_failed). Retry ONCE, only when the failed
+# service's own logs show that transient signature - a real app fault stays
+# red. The retry is a redeploy of the SAME image/config (POST /deploys, no
+# changes), its first failure's diagnostics are dumped BEFORE retrying, and
+# the retry is announced so a green verdict is read with it.
 for sid in "${!deploy_of[@]}"; do
   deadline=$((SECONDS + DEPLOY_TIMEOUT))
+  retries=1
   while :; do
     did="${deploy_of[$sid]}"
     if [ -z "$did" ]; then
@@ -115,7 +186,22 @@ for sid in "${!deploy_of[@]}"; do
     st="$( [ -n "$did" ] && api GET "/services/$sid/deploys/$did" | jq -r '.status' || echo pending)"
     case "$st" in
       live) log "$sid live"; break ;;
-      build_failed|update_failed|pre_deploy_failed|canceled|deactivated) die "$sid deploy $did ended $st" ;;
+      build_failed|update_failed|pre_deploy_failed)
+        if (( retries > 0 )) && deploy_failure_looks_transient "$sid" "$owner"; then
+          retries=$(( retries - 1 ))
+          log "$sid deploy $did ended $st with a transient-looking startup failure; preserving its diagnostics before one retry of the SAME image/config"
+          dump_service_diagnostics "$sid" "$owner" || true
+          echo "::notice::$sid first deploy ended $st (transient-looking startup failure); retried once, unchanged image/config. This run's verdict includes one retry."
+          sleep 90
+          did="$(api POST "/services/$sid/deploys" '{}' | jq -r '.id // empty')"
+          if [ -z "$did" ] || [ "$did" = null ]; then die "$sid could not restart a failed deploy"; fi
+          deploy_of[$sid]="$did"
+          deadline=$((SECONDS + DEPLOY_TIMEOUT))
+          log "$sid retry deploy $did started (own ${DEPLOY_TIMEOUT}s deadline)"
+        else
+          die "$sid deploy $did ended $st"
+        fi ;;
+      canceled|deactivated) die "$sid deploy $did ended $st" ;;
     esac
     (( SECONDS < deadline )) || die "$sid deploy still '$st' after ${DEPLOY_TIMEOUT}s"
     sleep 15
@@ -129,6 +215,7 @@ run_job() {
   local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline errs=0
   jid="$(api POST "/services/$sid/jobs" "$(jq -nc --arg c "$cmd" '{startCommand: $c}')" | jq -r '.id')"
   if [ -z "$jid" ] || [ "$jid" = null ]; then log "ERROR: could not start job: $label"; return 1; fi
+  remember jobs "$sid/$jid"
   log "job $label ($jid) started"
   deadline=$((SECONDS + timeout))
   while :; do

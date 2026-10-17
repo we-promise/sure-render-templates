@@ -19,6 +19,7 @@ setup() {
   printf '#!/bin/sh\nexit 0\n' > "${BATS_TEST_TMPDIR}/bin/sleep"; chmod +x "${BATS_TEST_TMPDIR}/bin/sleep"
   export PATH="${BATS_TEST_TMPDIR}/bin:$PATH"
   export RENDER_API_KEY=stub RENDER_OWNER_ID=tea-stub E2E_CONFIRM_COST=yes
+  export E2E_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   export E2E_BRANCH=sure-no-ai E2E_RUN=stub1 E2E_STATE="${BATS_TEST_TMPDIR}/state.json"
   export GITHUB_STEP_SUMMARY="${BATS_TEST_TMPDIR}/summary.md"
 }
@@ -29,11 +30,60 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
 @test "all phases pass: exit 0, no diagnostics, teardown ran" {
   run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"pinned image for this run: ghcr.io/we-promise/sure:stable -> ghcr.io/we-promise/sure@sha256:aaa"* ]]
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
   [[ "$output" == *"pass: demo-user smoke"* ]]
-  ! calls | grep -q '^GET /logs'
+  [[ "$output" == *"OOM events sweep: 2/2 service(s) fully queried for the whole run, none found"* ]]
+  [ "$(calls | grep -c '^GET /logs')" -eq 0 ]
   calls | grep -q '^DELETE /services/srv-web'
   calls | grep -q '^DELETE /postgres/pg-1'
+}
+
+@test "an OOM event anywhere in the run is reported, not swallowed" {
+  STUB_EVENTS_OOM=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"OOM events sweep: OOM events FOUND"* ]]
+  [[ "$output" == *"oomKilled"* ]]
+}
+
+@test "an unavailable events query is UNKNOWN, never 'none found'" {
+  STUB_EVENTS_UNAVAILABLE=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"UNKNOWN for: srv-web(query-failed) srv-worker(query-failed)"* ]]
+  [[ "$output" == *"no whole-run OOM claim"* ]]
+  [[ "$output" != *"none found"* ]]
+}
+
+@test "first deploy fails with a transient DB signature: diagnostics preserved, one retry of the same config, then green" {
+  STUB_DEPLOY_FAIL=transient run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"preserving its diagnostics before one retry of the SAME image/config"* ]]
+  [[ "$output" == *"transient-looking failure evidence:"* ]]
+  [[ "$output" == *"postgres://***@"* ]]
+  [[ "$output" != *"SUPERSECRETPW"* ]]
+  [[ "$output" == *"retry deploy dep-retry started"* ]]
+  [[ "$output" == *"verdict includes one retry"* ]]
+  [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
+  calls | grep -q '^POST /services/srv-web/deploys$'
+}
+
+@test "repeated refusal: exactly one retry, then run stays red and teardown runs" {
+  STUB_DEPLOY_FAIL=repeated run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"retry deploy dep-retry started"* ]]
+  [[ "$output" == *"ended update_failed"* ]]
+  [ "$(calls | grep -cE '^POST /services/.+/deploys$')" -eq 1 ]
+  calls | grep -q '^DELETE /services/srv-web'
+  calls | grep -q '^DELETE /postgres/pg-1'
+}
+
+@test "first deploy fails without a transient signature: no retry, run stays red" {
+  STUB_DEPLOY_FAIL=persistent run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ended update_failed"* ]]
+  [[ "$output" == *"not run: new-user smoke"* ]]
+  [ "$(calls | grep -cE '^POST /services/.+/deploys$')" -eq 0 ]
+  calls | grep -q '^DELETE /services/srv-web'
 }
 
 @test "new-user smoke fails: independent phases still run, diagnostics come before teardown, exit nonzero" {

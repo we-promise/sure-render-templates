@@ -1,8 +1,10 @@
 name: render e2e
 
 # Creates real Render resources in the Sure workspace. COSTS MONEY while it
-# runs: for sure-no-ai, $45.50/mo prorated per second (~$0.063/h), so a
-# 30-60 minute run is roughly $0.03-0.07. Never on push/PR: manual, or called
+# runs: for sure-no-ai at the 512 MB default, $45.50/mo prorated per second
+# (~$0.063/h), so a 30-60 minute run is roughly $0.03-0.07; a web_plan
+# override to 2 GB raises that to $63.50/mo (~$0.088/h, ~$0.04-0.09/run).
+# Never on push/PR: manual, or called
 # by "release test" for each new stable or alpha release (kill switch: repo
 # variable RENDER_E2E_ON_RELEASE=false). If the RENDER_API_KEY secret is
 # missing it skips (with a notice) instead of failing.
@@ -15,8 +17,24 @@ on:
         options: [sure-no-ai, sure-no-ai-latest]
         default: sure-no-ai
       confirm_cost:
-        description: 'Type "yes" to confirm this run creates billable Render resources (~$0.063/h for sure-no-ai)'
+        description: 'Type "yes" to confirm this run creates billable Render resources (~$0.063/h for sure-no-ai at 512 MB; more with a plan override)'
         required: true
+      web_plan:
+        description: 'Optional e2e-only web plan override (legacy API name, e.g. "standard" = 1c-2g); blank = 512 MB default'
+        required: false
+        default: ''
+      worker_plan:
+        description: 'Optional e2e-only worker plan override; blank = 512 MB default'
+        required: false
+        default: 
+      image_digest:
+        description: 'Optional sha256:... digest to pin the image to (requested release); blank = resolve the branch tag at run time'
+        required: false
+        default: ''
+      image_label:
+        description: 'Optional label for the requested release (e.g. v0.7.6-alpha.7), logged next to the pinned digest'
+        required: false
+        default: ''
   workflow_call:
     inputs:
       branch:
@@ -25,6 +43,18 @@ on:
       confirm_cost:
         type: string
         required: true
+      web_plan:
+        type: string
+        default: ''
+      worker_plan:
+        type: string
+        default: 
+      image_digest:
+        type: string
+        default: ''
+      image_label:
+        type: string
+        default: ''
     secrets:
       RENDER_API_KEY:
         required: false
@@ -84,6 +114,10 @@ jobs:
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
           E2E_BRANCH: ${{ inputs.branch }}
           E2E_CONFIRM_COST: ${{ inputs.confirm_cost }}
+          E2E_PLAN_WEB: ${{ inputs.web_plan }}
+          E2E_PLAN_WORKER: ${{ inputs.worker_plan }}
+          E2E_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          E2E_IMAGE_LABEL: ${{ inputs.image_label }}
           E2E_STATE: ${{ runner.temp }}/render-e2e-state.json
         run: tests/render/e2e.sh
       - name: Teardown

@@ -36,12 +36,23 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   calls | grep -q '^DELETE /postgres/pg-1'
 }
 
-@test "first deploy loses the datastore race: one retry after a grace wait, then green" {
-  STUB_FAIL_FIRST_DEPLOY=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+@test "first deploy fails with a transient DB signature: diagnostics preserved, one retry of the same config, then green" {
+  STUB_DEPLOY_FAIL=transient run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"preserving its diagnostics before one retry of the SAME image/config"* ]]
   [[ "$output" == *"retry deploy dep-retry started"* ]]
+  [[ "$output" == *"verdict includes one retry"* ]]
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
   calls | grep -q '^POST /services/srv-web/deploys$'
+}
+
+@test "first deploy fails without a transient signature: no retry, run stays red" {
+  STUB_DEPLOY_FAIL=persistent run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ended update_failed"* ]]
+  [[ "$output" == *"not run: new-user smoke"* ]]
+  ! calls | grep -q '^POST /services/srv-web/deploys$'
+  calls | grep -q '^DELETE /services/srv-web'
 }
 
 @test "new-user smoke fails: independent phases still run, diagnostics come before teardown, exit nonzero" {

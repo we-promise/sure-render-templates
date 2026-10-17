@@ -53,6 +53,45 @@ owner_id() {
 # post-teardown check match on this.
 E2E_NAME_RE='^(sure-[a-z0-9-]+|alphaclaw)-e2e-[a-z0-9]+$'
 
+
+# dump_service_diagnostics <service-id> <owner-id>: deploys, events, logs.
+dump_service_diagnostics() {
+  local id="$1" owner="${2:-}" out
+  log "::group::diagnostics service $id: deploys"
+  if out="$(api GET "/services/$id/deploys?limit=3" 2>&1)"; then
+    jq -r '.[] | .deploy | "\(.createdAt) deploy \(.id) \(.status) trigger=\(.trigger // "?")"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+  else echo "unavailable: $out" | head -c 600; fi
+  log "::endgroup::"
+  log "::group::diagnostics service $id: events (restarts, OOM, crashes)"
+  if out="$(api GET "/services/$id/events?limit=30" 2>&1)"; then
+    jq -r '.[] | .event | "\(.timestamp) \(.type) \(.details | tostring | .[0:300])"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+  else echo "unavailable: $out" | head -c 600; fi
+  log "::endgroup::"
+  log "::group::diagnostics service $id: last 100 log lines"
+  if [ -z "$owner" ]; then echo "unavailable: no owner id"
+  elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=100" 2>&1)"; then
+    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+  else echo "unavailable: $out" | head -c 600; fi
+  log "::endgroup::"
+  log "::group::diagnostics service $id: 5xx request logs"
+  if [ -z "$owner" ]; then echo "unavailable: no owner id"
+  elif out="$(api GET "/logs?ownerId=$owner&resource=$id&type=request&statusCode=5*&direction=backward&limit=50" 2>&1)"; then
+    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
+  else echo "unavailable: $out" | head -c 600; fi
+  log "::endgroup::"
+}
+
+# deploy_failure_looks_transient <service-id> <owner-id>: true only when the
+# failed deploy's recent logs show datastore-connectivity trouble during boot
+# (the new-Postgres readiness race), not app code. Gates the single deploy
+# retry so a genuine app fault stays red.
+deploy_failure_looks_transient() {
+  local sid="$1" owner="${2:-}" out
+  [ -n "$owner" ] || return 1
+  out="$(api GET "/logs?ownerId=$owner&resource=$sid&direction=backward&limit=100" 2>/dev/null)" || return 1
+  jq -r '.logs[]?.message' <<<"$out" 2>/dev/null     | grep -qiE 'Connection refused|ConnectionBad|could not connect|connection timed out|timeout expired'
+}
+
 # dump_diagnostics <state.json> <owner-id>: best-effort evidence for a failed
 # run, printed to the job log BEFORE teardown deletes the services (Render
 # keeps no logs for deleted services). Never fails and never changes the
@@ -61,28 +100,7 @@ dump_diagnostics() {
   local state="$1" owner="${2:-}" id out
   [ -f "$state" ] || { log "diagnostics: no state file"; return 0; }
   for id in $(jq -r '.services[]?' "$state"); do
-    log "::group::diagnostics service $id: deploys"
-    if out="$(api GET "/services/$id/deploys?limit=3" 2>&1)"; then
-      jq -r '.[] | .deploy | "\(.createdAt) deploy \(.id) \(.status) trigger=\(.trigger // "?")"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
-    else echo "unavailable: $out" | head -c 600; fi
-    log "::endgroup::"
-    log "::group::diagnostics service $id: events (restarts, OOM, crashes)"
-    if out="$(api GET "/services/$id/events?limit=30" 2>&1)"; then
-      jq -r '.[] | .event | "\(.timestamp) \(.type) \(.details | tostring | .[0:300])"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
-    else echo "unavailable: $out" | head -c 600; fi
-    log "::endgroup::"
-    log "::group::diagnostics service $id: last 100 log lines"
-    if [ -z "$owner" ]; then echo "unavailable: no owner id"
-    elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=100" 2>&1)"; then
-      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
-    else echo "unavailable: $out" | head -c 600; fi
-    log "::endgroup::"
-    log "::group::diagnostics service $id: 5xx request logs"
-    if [ -z "$owner" ]; then echo "unavailable: no owner id"
-    elif out="$(api GET "/logs?ownerId=$owner&resource=$id&type=request&statusCode=5*&direction=backward&limit=50" 2>&1)"; then
-      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800
-    else echo "unavailable: $out" | head -c 600; fi
-    log "::endgroup::"
+    dump_service_diagnostics "$id" "$owner"
   done
   # One-off jobs (migrations, checks, demo data): status plus logs, which
   # disappear with the service at teardown.

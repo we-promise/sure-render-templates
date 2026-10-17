@@ -133,11 +133,13 @@ while IFS= read -r row; do
   log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid) plan=$(jq -r .serviceDetails.plan <<<"$row")"
 done < <(jq -c '.services[]' "$work/plan.json")
 
-# A first deploy can race its brand-new Postgres: Render's API reports the
-# database "available" before it accepts private-network connections, the app
-# then dies in db:prepare with PG::ConnectionBad and the deploy ends
-# update_failed. Retry such a deploy once after a grace wait; anything else,
-# or a second failure, stays fatal.
+# A first deploy can lose the new-datastore startup race (observed: Render's
+# API said "available", the app then died in db:prepare with PG::ConnectionBad
+# and the deploy ended update_failed). Retry ONCE, only when the failed
+# service's own logs show that transient signature - a real app fault stays
+# red. The retry is a redeploy of the SAME image/config (POST /deploys, no
+# changes), its first failure's diagnostics are dumped BEFORE retrying, and
+# the retry is announced so a green verdict is read with it.
 for sid in "${!deploy_of[@]}"; do
   deadline=$((SECONDS + DEPLOY_TIMEOUT))
   retries=1
@@ -151,9 +153,11 @@ for sid in "${!deploy_of[@]}"; do
     case "$st" in
       live) log "$sid live"; break ;;
       build_failed|update_failed|pre_deploy_failed)
-        if (( retries > 0 )); then
+        if (( retries > 0 )) && deploy_failure_looks_transient "$sid" "$owner"; then
           retries=$(( retries - 1 ))
-          log "$sid deploy $did ended $st; waiting 90s for datastores, then one retry"
+          log "$sid deploy $did ended $st with a transient-looking startup failure; preserving its diagnostics before one retry of the SAME image/config"
+          dump_service_diagnostics "$sid" "$owner" || true
+          echo "::notice::$sid first deploy ended $st (transient-looking startup failure); retried once, unchanged image/config. This run's verdict includes one retry."
           sleep 90
           did="$(api POST "/services/$sid/deploys" '{}' | jq -r '.id // empty')"
           if [ -z "$did" ] || [ "$did" = null ]; then die "$sid could not restart a failed deploy"; fi

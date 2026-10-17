@@ -63,7 +63,7 @@ jobs:
       - name: Render Blueprint validate API (creates nothing)
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
         run: tests/render/validate.sh
 
   e2e:

@@ -73,3 +73,9 @@ Same rules as Garry's suites:
 
 - Negatives are `run <cmd>` + `[ "$status" -ne 0 ]`, never a bare `! cmd` (bats doesn't fail on it).
 - Missing prerequisites fail, they don't skip. A skip shows green, and CI must never go green unproven. One deliberate exception: the Render e2e skips (with a notice) when `RENDER_API_KEY` isn't set, so release runs stay green until the key is added.
+
+## Render e2e phase report
+
+`tests/render/e2e.sh` declares its required phases (migrations applied, new-user smoke, Sidekiq worker registered, demo data load, demo-user smoke) and the run is green only if every one passes. A failure does not stop phases that don't depend on it; a phase whose prerequisite failed is reported `skipped` with the reason, and a phase that never ran is `not run` (also a failure). The table goes to the log and the job summary. When anything is not `pass`, deploy history, service events (restarts, OOM) and the last 100 log lines per service are printed before teardown. Nightly stays local-only (no Render phases by design).
+
+`tests/unit/e2e-orchestration.bats` runs the real `tests/render/e2e.sh` against a stubbed Render API (`tests/lib/stubs/render-curl`) and a stubbed `smoke.py` (`tests/lib/stubs/render-python3`): success path, a failing smoke, a failing demo-data job, failing migrations. It checks that independent phases keep running, dependent ones are skipped, diagnostics print before teardown, and the verdict is nonzero. It creates nothing on Render and does not test smoke.py's HTTP flow or Render itself.

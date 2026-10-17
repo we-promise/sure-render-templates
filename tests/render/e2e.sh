@@ -15,6 +15,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=tests/render/lib.sh
 source "$ROOT/tests/render/lib.sh"
+# shellcheck source=tests/render/phases.sh
+source "$ROOT/tests/render/phases.sh"
+
+# Every phase below is required. The run is green only if all of them pass.
+phase_expect "migrations applied" "new-user smoke" "Sidekiq worker registered" "demo data load" "demo-user smoke"
 
 BRANCH="${E2E_BRANCH:-sure-no-ai}"
 RUN="${E2E_RUN:-${GITHUB_RUN_ID:-$(date +%s)}}"
@@ -36,6 +41,10 @@ remember() { # remember <kind> <id>
 
 teardown() {
   local rc=$?
+  phase_report || rc=1
+  [ "$rc" -ne 0 ] || log "PASS $BRANCH on Render (all phases passed)"
+  # Evidence first: the services (and their logs) vanish in the next step.
+  if [ "$rc" -ne 0 ]; then dump_diagnostics "$STATE" "${owner:-}" || true; fi
   if [ "${E2E_KEEP:-}" = "1" ]; then
     log "E2E_KEEP=1: leaving resources up (state: $STATE)"
     exit "$rc"
@@ -117,33 +126,44 @@ done
 # run_job <service-id> <label> <command> [timeout-s]: a Render one-off job on the
 # service's image, env and plan (billed per second while it runs).
 run_job() {
-  local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline
+  local sid="$1" label="$2" cmd="$3" timeout="${4:-900}" jid st deadline errs=0
   jid="$(api POST "/services/$sid/jobs" "$(jq -nc --arg c "$cmd" '{startCommand: $c}')" | jq -r '.id')"
-  if [ -z "$jid" ] || [ "$jid" = null ]; then die "could not start job: $label"; fi
+  if [ -z "$jid" ] || [ "$jid" = null ]; then log "ERROR: could not start job: $label"; return 1; fi
   log "job $label ($jid) started"
   deadline=$((SECONDS + timeout))
   while :; do
-    st="$(api GET "/services/$sid/jobs/$jid" | jq -r '.status')"
+    if st="$(api GET "/services/$sid/jobs/$jid" 2>/dev/null | jq -r '.status')" && [ -n "$st" ] && [ "$st" != null ]; then
+      errs=0
+    else
+      st=unknown
+      errs=$((errs + 1))
+      if (( errs >= 6 )); then log "ERROR: job $label status unreadable 6 times in a row"; return 1; fi
+    fi
     case "$st" in
       succeeded) log "job $label succeeded"; return 0 ;;
-      failed|canceled) die "job $label ended $st (see the job's logs in the Render dashboard)" ;;
+      failed|canceled) log "ERROR: job $label ended $st (see the job's logs in the Render dashboard)"; return 1 ;;
     esac
-    (( SECONDS < deadline )) || { api POST "/services/$sid/jobs/$jid/cancel" >/dev/null || true; die "job $label still '$st' after ${timeout}s"; }
+    (( SECONDS < deadline )) || { api POST "/services/$sid/jobs/$jid/cancel" >/dev/null || true; log "ERROR: job $label still '$st' after ${timeout}s"; return 1; }
     sleep 10
   done
 }
 
 [ -n "${web_sid:-}" ] || die "no web service id"
-run_job "$web_sid" "migrations applied" \
+# Phases. A failure does not stop phases that don't need it; a phase whose
+# prerequisite did not pass is reported skipped, never passed.
+phase_run "migrations applied" "" run_job "$web_sid" "migrations applied" \
   "bin/rails runner 'exit(ActiveRecord::Base.connection_pool.migration_context.needs_migration? ? 1 : 0)'"
 
-log "smoke against $web_url"
-python3 "$ROOT/tests/lib/smoke.py" "$web_url"
+# smoke.py reports its own sub-steps (it keeps going after a soft failure).
+phase_run "new-user smoke" "migrations applied" python3 "$ROOT/tests/lib/smoke.py" "$web_url"
 
-run_job "$web_sid" "Sidekiq worker registered" \
+phase_run "Sidekiq worker registered" "migrations applied" run_job "$web_sid" "Sidekiq worker registered" \
   "bin/rails runner 'require \"sidekiq/api\"; exit(Sidekiq::ProcessSet.new.size >= 1 ? 0 : 1)'"
 
 # Demo data the README way, then the demo user must see it.
-run_job "$web_sid" "rake demo_data:default" "bundle exec rake demo_data:default" 1500
-python3 "$ROOT/tests/lib/smoke.py" "$web_url" --demo
-log "PASS $BRANCH on Render"
+phase_run "demo data load" "migrations applied" run_job "$web_sid" "rake demo_data:default" "bundle exec rake demo_data:default" 1500
+phase_run "demo-user smoke" "demo data load" python3 "$ROOT/tests/lib/smoke.py" "$web_url" --demo
+
+# Exit status comes from the EXIT trap: it prints the phase table, dumps
+# diagnostics if anything is not "pass", tears down, and fails the run unless
+# every phase passed.

@@ -3,6 +3,8 @@
 # the Render API for the real tests/render/e2e.sh and teardown.sh: records every
 # call in $STUB_DIR/calls.log and answers from canned, shape-accurate bodies.
 #   STUB_FAIL_JOB   a one-off job whose command contains this text ends "failed"
+#   STUB_FAIL_FIRST_DEPLOY   the initial service deploys end update_failed
+#     (datastore-readiness race); the retry deploy dep-retry goes live
 set -u
 out=""; method=GET; url=""; body=""
 while [ $# -gt 0 ]; do
@@ -30,7 +32,10 @@ case "$method $path" in
     else
       resp='{"service":{"id":"srv-worker","serviceDetails":{}},"deployId":"dep-worker"}'
     fi ;;
-  "GET /services/srv-web/deploys/dep-web"|"GET /services/srv-worker/deploys/dep-worker") resp='{"status":"live"}' ;;
+  "GET /services/"*"/deploys/dep-retry") resp='{"status":"live"}' ;;
+  "GET /services/srv-web/deploys/dep-web"|"GET /services/srv-worker/deploys/dep-worker")
+    if [ -n "${STUB_FAIL_FIRST_DEPLOY:-}" ]; then resp='{"status":"update_failed"}'; else resp='{"status":"live"}'; fi ;;
+  "POST /services/"*"/deploys") resp='{"id":"dep-retry"}' ;;
   "GET /services/"*"/deploys?limit=3") resp='[{"deploy":{"id":"dep-1","status":"live","createdAt":"t0","trigger":"api"}}]' ;;
   "GET /services/"*"/events?limit=30") resp='[{"event":{"id":"evt-1","timestamp":"t1","type":"server_failed","details":{}},"cursor":"c"}]' ;;
   "GET /logs?"*) resp='{"hasMore":false,"logs":[{"id":"l1","timestamp":"t2","message":"STUB LOG LINE"}]}' ;;

@@ -133,8 +133,14 @@ while IFS= read -r row; do
   log "created $(jq -r .type <<<"$row") $(jq -r .name <<<"$row") ($sid) plan=$(jq -r .serviceDetails.plan <<<"$row")"
 done < <(jq -c '.services[]' "$work/plan.json")
 
+# A first deploy can race its brand-new Postgres: Render's API reports the
+# database "available" before it accepts private-network connections, the app
+# then dies in db:prepare with PG::ConnectionBad and the deploy ends
+# update_failed. Retry such a deploy once after a grace wait; anything else,
+# or a second failure, stays fatal.
 for sid in "${!deploy_of[@]}"; do
   deadline=$((SECONDS + DEPLOY_TIMEOUT))
+  retries=1
   while :; do
     did="${deploy_of[$sid]}"
     if [ -z "$did" ]; then
@@ -144,7 +150,19 @@ for sid in "${!deploy_of[@]}"; do
     st="$( [ -n "$did" ] && api GET "/services/$sid/deploys/$did" | jq -r '.status' || echo pending)"
     case "$st" in
       live) log "$sid live"; break ;;
-      build_failed|update_failed|pre_deploy_failed|canceled|deactivated) die "$sid deploy $did ended $st" ;;
+      build_failed|update_failed|pre_deploy_failed)
+        if (( retries > 0 )); then
+          retries=$(( retries - 1 ))
+          log "$sid deploy $did ended $st; waiting 90s for datastores, then one retry"
+          sleep 90
+          did="$(api POST "/services/$sid/deploys" '{}' | jq -r '.id // empty')"
+          if [ -z "$did" ] || [ "$did" = null ]; then die "$sid could not restart a failed deploy"; fi
+          deploy_of[$sid]="$did"
+          log "$sid retry deploy $did started"
+        else
+          die "$sid deploy $did ended $st"
+        fi ;;
+      canceled|deactivated) die "$sid deploy $did ended $st" ;;
     esac
     (( SECONDS < deadline )) || die "$sid deploy still '$st' after ${DEPLOY_TIMEOUT}s"
     sleep 15

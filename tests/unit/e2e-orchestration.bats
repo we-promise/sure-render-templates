@@ -36,6 +36,14 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   calls | grep -q '^DELETE /postgres/pg-1'
 }
 
+@test "first deploy loses the datastore race: one retry after a grace wait, then green" {
+  STUB_FAIL_FIRST_DEPLOY=1 run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"retry deploy dep-retry started"* ]]
+  [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
+  calls | grep -q '^POST /services/srv-web/deploys$'
+}
+
 @test "new-user smoke fails: independent phases still run, diagnostics come before teardown, exit nonzero" {
   STUB_SMOKE_RC=1 run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -ne 0 ]

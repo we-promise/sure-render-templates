@@ -81,7 +81,7 @@ jobs:
       - name: Render e2e
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
           E2E_BRANCH: ${{ inputs.branch }}
           E2E_CONFIRM_COST: ${{ inputs.confirm_cost }}
           E2E_STATE: ${{ runner.temp }}/render-e2e-state.json
@@ -92,5 +92,5 @@ jobs:
         if: always()
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
-          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+          RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
         run: tests/render/teardown.sh "${{ runner.temp }}/render-e2e-state.json" "e2e-${{ github.run_id }}"

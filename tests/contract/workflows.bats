@@ -58,7 +58,7 @@ triggers() {
 
 @test "shell scripts pass shellcheck" {
   command -v shellcheck >/dev/null || { echo "shellcheck not installed"; false; }
-  shellcheck "${REPO_ROOT}"/scripts/*.sh "${REPO_ROOT}"/tests/render/*.sh "${REPO_ROOT}"/tests/run.sh "${REPO_ROOT}"/tests/lib/tap-annotate.sh "${REPO_ROOT}"/tests/release/*.sh
+  shellcheck "${REPO_ROOT}"/scripts/*.sh "${REPO_ROOT}"/tests/render/*.sh "${REPO_ROOT}"/tests/run.sh "${REPO_ROOT}"/tests/lib/tap-annotate.sh "${REPO_ROOT}"/tests/lib/stubs/render-curl "${REPO_ROOT}"/tests/lib/stubs/render-python3 "${REPO_ROOT}"/tests/release/*.sh
 }
 
 @test "a run that skips the Render e2e says so in the job summary and a notice" {

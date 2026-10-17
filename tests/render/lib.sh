@@ -76,13 +76,13 @@ dump_service_diagnostics() {
   log "::group::diagnostics service $id: last 100 log lines"
   if [ -z "$owner" ]; then echo "unavailable: no owner id"
   elif out="$(api GET "/logs?ownerId=$owner&resource=$id&direction=backward&limit=100" 2>&1)"; then
-    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
+    { jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800; } | redact_secrets
   else echo "unavailable: $out" | head -c 600; fi
   log "::endgroup::"
   log "::group::diagnostics service $id: 5xx request logs"
   if [ -z "$owner" ]; then echo "unavailable: no owner id"
   elif out="$(api GET "/logs?ownerId=$owner&resource=$id&type=request&statusCode=5*&direction=backward&limit=50" 2>&1)"; then
-    jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
+    { jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800; } | redact_secrets
   else echo "unavailable: $out" | head -c 600; fi
   log "::endgroup::"
 }
@@ -164,7 +164,7 @@ dump_diagnostics() {
     else echo "unavailable: $out" | head -c 600; fi
     if [ -z "$owner" ]; then echo "unavailable: no owner id"
     elif out="$(api GET "/logs?ownerId=$owner&resource=$jid&direction=backward&limit=100" 2>&1)"; then
-      jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null | redact_secrets || echo "$out" | head -c 800
+      { jq -r '.logs | reverse | .[] | "\(.timestamp) \(.message)"' <<<"$out" 2>/dev/null || echo "$out" | head -c 800; } | redact_secrets
     else echo "unavailable: $out" | head -c 600; fi
     log "::endgroup::"
   done

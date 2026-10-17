@@ -196,7 +196,8 @@ for sid in "${!deploy_of[@]}"; do
           did="$(api POST "/services/$sid/deploys" '{}' | jq -r '.id // empty')"
           if [ -z "$did" ] || [ "$did" = null ]; then die "$sid could not restart a failed deploy"; fi
           deploy_of[$sid]="$did"
-          log "$sid retry deploy $did started"
+          deadline=$((SECONDS + DEPLOY_TIMEOUT))
+          log "$sid retry deploy $did started (own ${DEPLOY_TIMEOUT}s deadline)"
         else
           die "$sid deploy $did ended $st"
         fi ;;

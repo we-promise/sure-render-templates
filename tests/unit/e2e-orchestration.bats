@@ -34,7 +34,7 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
   [[ "$output" == *"pass: demo-user smoke"* ]]
   [[ "$output" == *"OOM events sweep: 2/2 service(s) fully queried for the whole run, none found"* ]]
-  ! calls | grep -q '^GET /logs'
+  [ "$(calls | grep -c '^GET /logs')" -eq 0 ]
   calls | grep -q '^DELETE /services/srv-web'
   calls | grep -q '^DELETE /postgres/pg-1'
 }
@@ -82,7 +82,7 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   [ "$status" -ne 0 ]
   [[ "$output" == *"ended update_failed"* ]]
   [[ "$output" == *"not run: new-user smoke"* ]]
-  ! calls | grep -q '^POST /services/srv-web/deploys$'
+  [ "$(calls | grep -cE '^POST /services/.+/deploys$')" -eq 0 ]
   calls | grep -q '^DELETE /services/srv-web'
 }
 

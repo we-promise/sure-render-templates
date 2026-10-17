@@ -6,7 +6,9 @@
 # reason, never as a pass.
 #
 #   phase_expect <name>...              declare the required phases, in order
-#   phase_run <name> "<needs>" cmd...   run cmd unless a needed phase isn't "pass"
+#   phase_run <name> "<needs>" cmd...   run cmd unless a needed phase isn't "pass";
+#                                       <needs> is phase names separated by "|"
+#                                       (names may contain spaces), or ""
 #   phase_report                        print the table (and the Actions job
 #                                       summary); returns 1 unless all passed
 # shellcheck disable=SC2034
@@ -26,7 +28,9 @@ phase_expect() {
 phase_run() {
   local name="$1" needs="$2" dep rc
   shift 2
-  for dep in $needs; do
+  local -a deps=()
+  [ -z "$needs" ] || IFS='|' read -r -a deps <<<"$needs"
+  for dep in "${deps[@]}"; do
     if [ "${PHASE_STATUS[$dep]:-not run}" != "pass" ]; then
       PHASE_STATUS[$name]="skipped"
       PHASE_NOTE[$name]="needs '$dep' (${PHASE_STATUS[$dep]:-not run})"

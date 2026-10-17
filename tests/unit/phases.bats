@@ -85,3 +85,15 @@ setup() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"unavailable"* ]]
 }
+
+@test "prerequisites may be multi-word phase names, and several can be listed with |" {
+  phase_expect "migrations applied" "demo data load" "demo-user smoke"
+  phase_run "migrations applied" "" true
+  phase_run "demo data load" "migrations applied" true
+  phase_run "demo-user smoke" "migrations applied|demo data load" true
+  [ "${PHASE_STATUS[demo data load]}" = pass ]
+  [ "${PHASE_STATUS[demo-user smoke]}" = pass ]
+  phase_run "other" "migrations applied|nope" true
+  [ "${PHASE_STATUS[other]}" = skipped ]
+  [[ "${PHASE_NOTE[other]}" == *"needs 'nope'"* ]]
+}

@@ -82,14 +82,15 @@ dump_service_diagnostics() {
 }
 
 # deploy_failure_looks_transient <service-id> <owner-id>: true only when the
-# failed deploy's recent logs show datastore-connectivity trouble during boot
-# (the new-Postgres readiness race), not app code. Gates the single deploy
-# retry so a genuine app fault stays red.
+# failed deploy's recent logs show the observed startup-race signature: the
+# datastore REFUSING or TIMING OUT connections during boot. PG::ConnectionBad
+# alone does not qualify - auth and config faults raise it too, and those are
+# persistent. Gates the single deploy retry so a genuine app fault stays red.
 deploy_failure_looks_transient() {
   local sid="$1" owner="${2:-}" out
   [ -n "$owner" ] || return 1
   out="$(api GET "/logs?ownerId=$owner&resource=$sid&direction=backward&limit=100" 2>/dev/null)" || return 1
-  jq -r '.logs[]?.message' <<<"$out" 2>/dev/null     | grep -qiE 'Connection refused|ConnectionBad|could not connect|connection timed out|timeout expired'
+  jq -r '.logs[]?.message' <<<"$out" 2>/dev/null     | grep -qiE 'connection refused|connection timed out|timeout expired'
 }
 
 # dump_diagnostics <state.json> <owner-id>: best-effort evidence for a failed

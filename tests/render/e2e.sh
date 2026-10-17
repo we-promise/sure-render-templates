@@ -12,6 +12,8 @@
 #   E2E_PLAN_WEB / E2E_PLAN_WORKER  e2e-only plan override for that service
 #     type (legacy API name, e.g. "standard" = 1c-2g); unset = 512 MB default.
 #     One-off jobs inherit the web service's plan (render.com/docs/jobs).
+#   E2E_IMAGE_DIGEST  sha256:... to pin the image to; unset = resolve the
+#     branch's tag with docker (mutable tags move; see the pin note below).
 #   E2E_KEEP=1        skip teardown (debugging only; the sweeper still deletes after 2h)
 #   RENDER_API_KEY, optional RENDER_OWNER_ID / RENDER_REGION
 set -euo pipefail
@@ -34,6 +36,33 @@ DEPLOY_TIMEOUT="${E2E_DEPLOY_TIMEOUT:-1500}"
 
 work="$(mktemp -d)"
 git -C "$ROOT" show "refs/remotes/origin/$BRANCH:render.yaml" > "$work/render.yaml"
+
+# Pin the image to a digest in the WORK COPY (the deploy branch is untouched).
+# The branches track mutable tags (:stable / :latest) and the deploy retry
+# below re-pulls the tag, so without a pin the retry could run a different
+# build than the failed first attempt and the comparison would be void.
+image_url="$(python3 - "$work/render.yaml" <<'PY'
+import sys, yaml
+bp = yaml.safe_load(open(sys.argv[1]))
+urls = sorted({s["image"]["url"] for s in bp.get("services", []) if s.get("runtime") == "image"})
+if len(urls) != 1:
+    sys.exit(f"expected exactly one image URL across image services, got {urls}")
+print(urls[0])
+PY
+)" || die "could not read the image URL from $work/render.yaml"
+if [[ "$image_url" == *@sha256:* ]]; then
+  log "image already pinned: $image_url"
+else
+  digest="${E2E_IMAGE_DIGEST:-}"
+  if [ -z "$digest" ]; then
+    digest="$(docker buildx imagetools inspect "$image_url" --format '{{json .Manifest.Digest}}' | tr -d '"')"       || die "could not resolve a digest for $image_url (need docker or E2E_IMAGE_DIGEST=sha256:...)"
+  fi
+  [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "bad image digest for $image_url: '$digest'"
+  pinned="${image_url%%@*}@$digest"
+  sed -i "s|url: $image_url|url: $pinned|g" "$work/render.yaml"
+  log "pinned image for this run: $image_url -> $pinned (mutable tags can move between a failed deploy and its retry)"
+fi
+
 python3 "$ROOT/tests/lib/blueprint.py" render-plan "$work/render.yaml" "$SUFFIX" > "$work/plan.json"
 echo '{"postgres":[],"keyvalue":[],"services":[]}' > "$STATE"
 

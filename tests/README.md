@@ -5,9 +5,9 @@ This repo is Render Blueprints plus two scripts. There's no app code, so the tes
 | Layer | What it checks | Needs | Cost | Runs |
 | --- | --- | --- | --- | --- |
 | **unit** | `scripts/use-image-tag.sh` rewrites only image url lines. `scripts/update-deploy-branches.sh` builds all 6 branches with the right root `render.yaml` and keeps the AlphaClaw build files only on external-ai branches. Both run in a throwaway clone. | bats, git | $0 | PRs, push to main |
-| **contract** | Static invariants over every Blueprint: image tag matches the branch name, `autoDeployTrigger: off`, Postgres basic-1gb on PG 18, starter sizing + Puma 1x3, health check + storage disk, worker runs Sidekiq with web's `SECRET_KEY_BASE`, no dangling env references, no-AI settings blank, SSL settings on. **Drift check**: each live deploy branch equals what the generator would produce from `branches/`. Workflow guard rails and shellcheck. | bats, python3 + PyYAML, shellcheck | $0 | PRs, push to main |
+| **contract** | Static invariants over every Blueprint: image tag matches the branch name, `autoDeployTrigger: off`, Postgres basic-1gb on PG 18, omitted web/worker plans + explicit datastore sizing + Puma 1x3, health check + storage disk, worker runs Sidekiq with web's `SECRET_KEY_BASE`, no dangling env references, OpenAI keys omitted from root, source, and generated Blueprints (including worker references), no-op optional placeholders omitted, SSO/mail/telemetry credentials optional, intentional AI-profile wiring preserved, SSL settings on. **Drift check**: each live deploy branch equals what the generator would produce from `branches/`. Workflow guard rails and shellcheck. | bats, python3 + PyYAML, shellcheck | $0 | PRs, push to main |
 | **local e2e** | Boots a deploy branch's Blueprint in docker compose, generated from that branch's own `render.yaml` (`tests/lib/blueprint.py`). Checks: right image; web + worker stay up; DB fully migrated; runs as behind a TLS proxy (https links + HSTS on plain http, since `RAILS_ASSUME_SSL`/`RAILS_FORCE_SSL` are on); smoke through the `X-Forwarded-Proto: https` header Render's proxy adds: open sign-up, log in from a fresh session, onboarding, a manual cash account, an expense added through the transaction form and shown in the list, and the worker's account sync moving the balance; Sidekiq registered in Redis; a job enqueued by web gets processed; `rake demo_data:default` (the README way) loads and the demo user sees the demo accounts and transactions. Render e2e runs the same checks. | docker, bats, curl, python3 + PyYAML | $0 | PRs, push to main, every new Sure stable/alpha/nightly |
-| **Render e2e** | Creates the Blueprint's resources in Render through the API, at the Blueprint's own plans, named `<name>-e2e-<run>`. Waits for the deploys to go live, runs the same smoke (sign-up through the worker-synced balance) against the real https URL, checks migrations and the Sidekiq worker and loads demo data through Render one-off jobs, then deletes everything and verifies nothing with the run's suffix is left. Also runs Render's Blueprint validate API on all 6 files. | `RENDER_API_KEY` secret | **billable**, see below | every new Sure stable and alpha release, or manual (`render e2e` workflow) |
+| **Render e2e** | Creates the Blueprint's resources in Render through the API, at explicit Blueprint plans or the documented paid 512 MB new-service default when web/worker plans are omitted, named `<name>-e2e-<run>`. Waits for the deploys to go live, runs the same smoke (sign-up through the worker-synced balance) against the real https URL, checks migrations and the Sidekiq worker and loads demo data through Render one-off jobs, then deletes everything and verifies nothing with the run's suffix is left. Also runs Render's Blueprint validate API on all 6 files. | `RENDER_API_KEY` secret | **billable**, see below | every new Sure stable and alpha release, or manual (`render e2e` workflow) |
 
 ```sh
 tests/run.sh           # unit + contract (fast, no docker)
@@ -44,8 +44,8 @@ From [render.com/pricing](https://render.com/pricing), billed per second while r
 | --- | --- | --- |
 | sure-web | starter | $7 |
 | sure-worker | starter | $7 |
-| sure-redis | Key Value starter | $10 |
-| sure-postgres | basic-1gb | $19 |
+| sure-redis | Key Value starter (256mb) | $10 |
+| sure-postgres | basic-1gb (0.5c-1g) | $19 |
 | sure-storage disk | 10 GB × $0.25 | $2.50 |
 | **total** | | **$45.50/mo ≈ $0.063/hour** |
 
@@ -57,12 +57,16 @@ A run takes about 30-60 minutes including provisioning, so it costs about $0.03-
 
 `teardown.sh` also lists resources by name afterwards and fails the run if anything with the run's suffix is still there.
 
-The API creates the Blueprint's resources one by one. Render has no public API to instantiate a Blueprint. Plans, env vars, disk, health check and worker command all come from the branch's `render.yaml`.
+For new test web/worker resources, `tests/lib/blueprint.py` explicitly uses the API's `starter` identifier when the Blueprint omits `plan`, matching Render's paid 0.5 CPU / 512 MB Blueprint creation default. This is only a creation-time test adapter; it does not resize existing services. Unit tests cover omitted and explicitly overridden plans. The cost estimate above therefore keeps the same resource sizes.
+
+For a one-off memory probe, the e2e (never a Blueprint deploy) accepts plan overrides: set `E2E_PLAN_WEB` / `E2E_PLAN_WORKER` when running `tests/render/e2e.sh` by hand, or pass the `web_plan` / `worker_plan` inputs to the `render e2e` or `release test` workflows. Values use Render's legacy API plan names, e.g. `standard` = 1c-2g (2 GB, $25/mo list); an explicit `plan` in the Blueprint always wins. One-off jobs (migrations, checks, demo data) inherit the web service's plan ([render.com/docs/jobs](https://render.com/docs/jobs)), so a web override also resizes those jobs. With the web at `standard` and everything else at defaults a run provisions $63.50/mo ≈ $0.088/hour.
+
+The API creates the Blueprint's resources one by one. Render has no public API to instantiate a Blueprint. Explicit plans, env vars, disk, health check, and worker command come from the branch's `render.yaml`; omitted web/worker plans use the documented creation default described above.
 
 ## Adding a combination
 
 1. Add the deploy branch to the `e2e-local` matrix in `.github/workflows/test.yml`, to the channel's branch list in `release-test.yml`, and to the `branch` choices in `render-e2e.yml`. Render resource names are suffixed with the run id only, so before a channel gets more than one branch, add the branch to the suffix in `tests/render/e2e.sh` and the workflow's teardown step.
-2. Extend `tests/lib/blueprint.py` for any Blueprint feature it doesn't support yet. It fails loudly on unsupported features: `sync: false` prompted secrets (simple-ai), and docker-runtime services (external-ai's AlphaClaw).
+2. Extend `tests/lib/blueprint.py` for any Blueprint feature it doesn't support yet. It fails loudly on unsupported features: `sync: false` prompted secrets and docker-runtime services (external-ai's AlphaClaw). Simple AI now gets its OpenAI settings outside the Blueprint; an AI test must provide its own test configuration to both services.
 3. Add flavor-specific assertions (pgvector for simple-ai, the gateway wiring for external-ai).
 
 ## Assertion rules
@@ -144,3 +148,9 @@ existing `RENDER_API_KEY` secret only for metadata GET requests. It never modifi
 uploaded with one-day retention; traces stay on the runner/local machine. See
 [stable deployment proposal](../docs/stable-sample-deployment.md) for the separate
 automatic stable-rollout design and outstanding approvals.
+
+## Render e2e phase report
+
+`tests/render/e2e.sh` declares its required phases (migrations applied, new-user smoke, Sidekiq worker registered, demo data load, demo-user smoke) and the run is green only if every one passes. A failure does not stop phases that don't depend on it; a phase whose prerequisite failed is reported `skipped` with the reason, and a phase that never ran is `not run` (also a failure). The table goes to the log and the job summary. When anything is not `pass`, deploy history, service events (restarts, OOM) and the last 100 log lines per service are printed before teardown. Nightly stays local-only (no Render phases by design).
+
+`tests/unit/e2e-orchestration.bats` runs the real `tests/render/e2e.sh` against a stubbed Render API (`tests/lib/stubs/render-curl`) and a stubbed `smoke.py` (`tests/lib/stubs/render-python3`): success path, a failing smoke, a failing demo-data job, failing migrations. It checks that independent phases keep running, dependent ones are skipped, diagnostics print before teardown, and the verdict is nonzero. It creates nothing on Render and does not test smoke.py's HTTP flow or Render itself.

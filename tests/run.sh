@@ -15,7 +15,7 @@ fetch_deploy_branches() {
 }
 
 case "${1:-fast}" in
-  unit) bats tests/unit ;;
+  unit) fetch_deploy_branches; bats tests/unit ;;
   contract) fetch_deploy_branches; bats tests/contract ;;
   fast) fetch_deploy_branches; bats tests/unit tests/contract ;;
   e2e) need docker; need curl; fetch_deploy_branches; bats tests/e2e ;;

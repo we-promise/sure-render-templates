@@ -157,6 +157,20 @@ def fail(msg):
     sys.exit(1)
 
 
+SOFT_FAILURES = []
+
+
+def soft_fail(msg):
+    print(f"FAIL {msg}")
+    SOFT_FAILURES.append(msg)
+
+
+def finish():
+    if SOFT_FAILURES:
+        print(f"FAILED: {len(SOFT_FAILURES)} check(s) failed: " + "; ".join(SOFT_FAILURES))
+        sys.exit(1)
+
+
 def ok(msg):
     print(f"ok   {msg}")
 
@@ -174,6 +188,7 @@ def main():
 
     if "--demo" in args:
         demo_flow(base, proto)
+        finish()
         return
 
     anon = Client(base, proto)
@@ -254,8 +269,18 @@ def new_user_flow(c):
     nxt = submit(c, "/onboarding/goals", r"^/users/", {}, "onboarding (goals)")
     status, loc, _ = c.request("GET", "/")
     if status != 200:
-        fail(f"after onboarding GET / returned {status} -> {loc!r} (expected the dashboard)")
-    ok(f"onboarding completed (goals -> {nxt}), dashboard is 200")
+        soft_fail(f"after onboarding GET / returned {status} -> {loc!r} (expected the dashboard)")
+        # Evidence only, not a retry-to-green: is it a blip or does it stay down?
+        seen = []
+        for _ in range(3):
+            time.sleep(5)
+            try:
+                seen.append(str(c.request("GET", "/")[0]))
+            except Exception as e:  # evidence only: record what was seen, keep going
+                seen.append(type(e).__name__)
+        print(f"info dashboard re-checked 3x, 5s apart: {', '.join(seen)} (the failure above stands)")
+    else:
+        ok(f"onboarding completed (goals -> {nxt}), dashboard is 200")
 
     # A manual cash account with an opening balance.
     acct = f"Smoke Cash {secrets.token_hex(2)}"

@@ -9,12 +9,28 @@ what users deploy. Only the Blueprint features this repo uses are supported;
 anything else fails loudly instead of being silently dropped.
 """
 import json
+import os
 import secrets
 import sys
 
 import yaml
 
 SUPPORTED_SERVICE_TYPES = {"web", "worker", "keyvalue"}
+
+# This adapter creates NEW throwaway services through the API, not Blueprint
+# updates. Mirror the Blueprint's omitted-plan creation default explicitly:
+# paid 0.5 CPU / 512 MB (the API's backward-compatible "starter" identifier).
+# Existing Blueprint-managed services keep their current plan when it is omitted.
+# https://render.com/docs/blueprint-spec#plan
+NEW_SERVICE_DEFAULT_PLAN = "starter"
+
+# Test-only plan overrides for the e2e harness (Render API / workflow input,
+# never part of a Blueprint): E2E_PLAN_WEB / E2E_PLAN_WORKER replace the
+# creation default for services of that type, e.g. "standard" (1c-2g) to
+# probe whether a failure is memory-related. An explicit plan in the
+# Blueprint always wins. Legacy names and new plan IDs are interchangeable:
+# https://render.com/docs/compute-plans
+OVERRIDE_ENV = {"web": "E2E_PLAN_WEB", "worker": "E2E_PLAN_WORKER"}
 
 
 def load(path):
@@ -139,15 +155,22 @@ def render_plan(path, suffix):
             "databaseUser": db["user"],
         })
     for kv in [s for s in bp["services"] if s["type"] == "keyvalue"]:
-        plan["keyvalues"].append({
+        resource = {
             "blueprintName": kv["name"],
             "name": f"{kv['name']}-{suffix}",
             "plan": kv["plan"],
             "ipAllowList": kv.get("ipAllowList", []),
-        })
+        }
+        if "maxmemoryPolicy" in kv:
+            resource["maxmemoryPolicy"] = kv["maxmemoryPolicy"]
+        plan["keyvalues"].append(resource)
     for svc in image_services(bp):
         env = resolve_env(bp, svc, "@@DATABASE_URL@@", "@@REDIS_URL@@", generated)
-        details = {"runtime": "image", "plan": svc["plan"]}
+        if "plan" in svc:
+            svc_plan = svc["plan"]
+        else:
+            svc_plan = os.environ.get(OVERRIDE_ENV.get(svc["type"], ""), "") or NEW_SERVICE_DEFAULT_PLAN
+        details = {"runtime": "image", "plan": svc_plan}
         if svc.get("healthCheckPath"):
             details["healthCheckPath"] = svc["healthCheckPath"]
         if svc.get("disk"):

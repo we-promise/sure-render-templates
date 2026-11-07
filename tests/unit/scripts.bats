@@ -63,6 +63,12 @@ teardown() {
   run scripts/update-deploy-branches.sh
   [ "$status" -eq 0 ]
   [ "$(git branch --show-current)" = "work" ]
+  [[ "$output" == *"git push --atomic "* ]]
+  [[ "$output" == *" origin sure-no-ai sure-no-ai-latest sure-simple-ai sure-simple-ai-latest sure-external-ai sure-external-ai-latest"* ]]
+  for b in "${DEPLOY_BRANCHES[@]}"; do
+    [[ "$output" == *"--force-with-lease=refs/heads/${b}:"* ]]
+  done
+  [[ "$output" == *"review Render Blueprint Auto Sync and live settings"* ]]
   for b in "${DEPLOY_BRANCHES[@]}"; do
     run git show "$b:render.yaml"
     [ "$status" -eq 0 ]
@@ -86,4 +92,15 @@ teardown() {
       fi
     done
   done
+}
+
+@test "update-deploy-branches.sh pins publication leases to fetched remote tips" {
+  expected="$(git rev-parse HEAD)"
+  git update-ref refs/remotes/origin/sure-no-ai "$expected"
+  git update-ref -d refs/remotes/origin/sure-simple-ai
+  run scripts/update-deploy-branches.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--force-with-lease=refs/heads/sure-no-ai:${expected} "* ]]
+  # An unfetched/new branch must require remote absence rather than accept any tip.
+  [[ "$output" == *"--force-with-lease=refs/heads/sure-simple-ai: "* ]]
 }

@@ -10,6 +10,7 @@ CURRENT_BRANCH="$(git branch --show-current)"
 FLAVORS=(sure-no-ai sure-simple-ai sure-external-ai)
 TAGS=(stable latest)
 OUT_BRANCHES=()
+OUT_LEASES=()
 
 if [[ -z "${CURRENT_BRANCH}" ]]; then
   echo "Run this script from a named branch, not a detached HEAD." >&2
@@ -30,6 +31,11 @@ for flavor in "${FLAVORS[@]}"; do
       branch="${flavor}-latest"
     fi
     OUT_BRANCHES+=("${branch}")
+    # Capture the expected remote tip now, not when a later push happens.
+    # An empty lease requires the remote branch not to exist; a stale/missing
+    # fetch therefore fails safely instead of overwriting unseen work.
+    remote_sha="$(git rev-parse --verify -q "refs/remotes/origin/${branch}" || true)"
+    OUT_LEASES+=("--force-with-lease=refs/heads/${branch}:${remote_sha}")
 
     git checkout -B "${branch}" "${CURRENT_BRANCH}"
     cp "${ROOT_DIR}/branches/${flavor}/render.yaml" "${ROOT_DIR}/render.yaml"
@@ -53,4 +59,5 @@ git checkout "${CURRENT_BRANCH}"
 trap - EXIT
 
 echo "Updated deploy branches: ${OUT_BRANCHES[*]}"
-echo "Push them with: git push --force-with-lease origin ${OUT_BRANCHES[*]}"
+echo "Before publishing, review Render Blueprint Auto Sync and live settings; this can apply live changes."
+echo "Push all branches atomically after approval: git push --atomic ${OUT_LEASES[*]} origin ${OUT_BRANCHES[*]}"

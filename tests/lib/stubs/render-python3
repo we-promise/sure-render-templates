@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# python3 wrapper for tests/unit/e2e-orchestration.bats: stands in for
+# tests/lib/smoke.py only (everything else, e.g. blueprint.py, runs for real).
+#   STUB_SMOKE_RC       exit status of the new-user smoke (default 0)
+#   STUB_DEMO_SMOKE_RC  exit status of the --demo smoke (default 0)
+if [[ "${1:-}" == */tests/lib/smoke.py ]]; then
+  if [[ " $* " == *" --demo "* ]]; then
+    echo "SMOKE demo" >> "$STUB_DIR/calls.log"; exit "${STUB_DEMO_SMOKE_RC:-0}"
+  fi
+  echo "SMOKE new-user" >> "$STUB_DIR/calls.log"; exit "${STUB_SMOKE_RC:-0}"
+fi
+exec "$REAL_PYTHON3" "$@"

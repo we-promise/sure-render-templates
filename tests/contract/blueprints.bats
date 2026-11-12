@@ -104,10 +104,19 @@ q() { $BPQ "$@"; }
 
 @test "compose/Render translation accepts no-AI and simple-AI Blueprints" {
   # This validates generated PR templates, not the published deploy branches.
-  # External AI still uses unsupported docker-runtime services/prompted secrets.
   for b in sure-no-ai sure-no-ai-latest sure-simple-ai sure-simple-ai-latest; do
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${GEN_DIR}/$b.yaml" >/dev/null
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${GEN_DIR}/$b.yaml" t0 >/dev/null
+  done
+}
+
+@test "compose translation accepts External AI Blueprints; the Render plan doesn't build AlphaClaw yet" {
+  export E2E_PROMPT_SETUP_PASSWORD=s E2E_PROMPT_GITHUB_TOKEN=g E2E_PROMPT_GITHUB_WORKSPACE_REPO=r E2E_PROMPT_MCP_USER_EMAIL=u
+  for b in sure-external-ai sure-external-ai-latest; do
+    python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${GEN_DIR}/$b.yaml" >/dev/null
+    run python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${GEN_DIR}/$b.yaml" t0
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"service alphaclaw: only runtime=image is supported"* ]]
   done
 }
 

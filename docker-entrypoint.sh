@@ -16,4 +16,10 @@ if [ ! -f "${CFG}" ]; then
   printf '{\n  "features": {\n    "openaiCompatApi": {\n      "enabled": true\n    }\n  }\n}\n' > "${CFG}"
 fi
 
+# Render can suffix private hostnames, so the Blueprint passes sure-web's real
+# host and the MCP URL is built here.
+if [ -z "${REMOTE_MCP_URL}" ] && [ -n "${SURE_WEB_HOST}" ]; then
+  export REMOTE_MCP_URL="http://${SURE_WEB_HOST}:3000/mcp"
+fi
+
 exec /usr/bin/tini -- alphaclaw start

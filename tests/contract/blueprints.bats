@@ -88,7 +88,8 @@ q() { $BPQ "$@"; }
 
 @test "sure-worker runs Sidekiq and shares sure-web's SECRET_KEY_BASE" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
-    [ "$(q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]')" = "bundle exec sidekiq" ]
+    run q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]'
+    [[ "$output" == "bundle exec sidekiq" || "$output" == *"exec bundle exec sidekiq'" ]] || { echo "$f $output"; false; }
     run q "$f" '[e["fromService"] for s in svcs if s["name"]=="sure-worker" for e in s["envVars"] if e["key"]=="SECRET_KEY_BASE"]'
     [ "$output" = "{'type': 'web', 'name': 'sure-web', 'envVarKey': 'SECRET_KEY_BASE'}" ] || { echo "$f $output"; false; }
   done
@@ -155,14 +156,23 @@ q() { $BPQ "$@"; }
       run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ASSISTANT_TYPE']"
       [ "$status" -eq 0 ]
       [ "$output" = "external" ]
-      run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
+      # Render can suffix private hostnames, so the URL is built from AlphaClaw's real host.
+      run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ALPHACLAW_HOST']"
       [ "$status" -eq 0 ]
-      [ "$output" = "http://alphaclaw:3000/v1/chat/completions" ]
+      [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'property': 'host'}" ]
+      run q "$f" "[s.get('dockerCommand') for s in svcs if s['name']=='$name']"
+      [[ "$output" == *'EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}"'* ]] || { echo "$f $name: $output"; false; }
+      run q "$f" "[e['key'] for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
+      [ -z "$output" ] || { echo "$f $name hardcodes EXTERNAL_ASSISTANT_URL"; false; }
       run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_TOKEN']"
       [ "$status" -eq 0 ]
       [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'envVarKey': 'OPENCLAW_GATEWAY_TOKEN'}" ]
     done
     [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="alphaclaw" for e in s["envVars"] if e["key"]=="OPENCLAW_GATEWAY_TOKEN"] == [True]')" = "true" ]
+    run q "$f" "[e.get('fromService') for s in svcs if s['name']=='alphaclaw' for e in s['envVars'] if e['key']=='SURE_WEB_HOST']"
+    [ "$output" = "{'type': 'web', 'name': 'sure-web', 'property': 'host'}" ] || { echo "$f $output"; false; }
+    run q "$f" "[e['key'] for s in svcs if s['name']=='alphaclaw' for e in s['envVars'] if e['key']=='REMOTE_MCP_URL']"
+    [ -z "$output" ] || { echo "$f hardcodes REMOTE_MCP_URL"; false; }
     [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_API_TOKEN"] == [True]')" = "true" ]
     [ "$(q "$f" '[e.get("sync") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_USER_EMAIL"] == [False]')" = "true" ]
   done

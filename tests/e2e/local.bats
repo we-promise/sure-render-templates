@@ -225,6 +225,11 @@ if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
   [ "$output" = '{"error":"Gateway unavailable"}' ] || { echo "shared token: $output"; false; }
 }
 
+@test "external AI: AlphaClaw's image can verify HTTPS servers (CA bundle present)" {
+  run $DC exec -T "$ALPHACLAW" sh -c 'test -s /etc/ssl/certs/ca-certificates.crt'
+  [ "$status" -eq 0 ] || { echo "no CA bundle: curl and git over HTTPS fail at boot"; false; }
+}
+
 @test "external AI: from AlphaClaw, its MCP URL and token list Sure's tools" {
   url="$(proc1_env "$ALPHACLAW" REMOTE_MCP_URL)"
   echo "REMOTE_MCP_URL=$url"

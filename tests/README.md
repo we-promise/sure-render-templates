@@ -60,6 +60,8 @@ A run takes about 30-60 minutes including provisioning, so it costs about $0.03-
 
 For new test web/worker resources, `tests/lib/blueprint.py` explicitly uses the API's `starter` identifier when the Blueprint omits `plan`, matching Render's paid 0.5 CPU / 512 MB Blueprint creation default. This is only a creation-time test adapter; it does not resize existing services. Unit tests cover omitted and explicitly overridden plans. The cost estimate above therefore keeps the same resource sizes.
 
+Locally, `E2E_MEM_LIMIT=512m tests/run.sh e2e` caps web, worker and AlphaClaw at Render's default new-service size, for free.
+
 For a one-off memory probe, the e2e (never a Blueprint deploy) accepts plan overrides: set `E2E_PLAN_WEB` / `E2E_PLAN_WORKER` when running `tests/render/e2e.sh` by hand, or pass the `web_plan` / `worker_plan` inputs to the `render e2e` or `release test` workflows. Values use Render's legacy API plan names, e.g. `standard` = 1c-2g (2 GB, $25/mo list); an explicit `plan` in the Blueprint always wins. One-off jobs (migrations, checks, demo data) inherit the web service's plan ([render.com/docs/jobs](https://render.com/docs/jobs)), so a web override also resizes those jobs. With the web at `standard` and everything else at defaults a run provisions $63.50/mo ≈ $0.088/hour.
 
 The API creates the Blueprint's resources one by one. Render has no public API to instantiate a Blueprint. Explicit plans, env vars, disk, health check, and worker command come from the branch's `render.yaml`; omitted web/worker plans use the documented creation default described above.

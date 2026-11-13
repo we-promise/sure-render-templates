@@ -161,6 +161,9 @@ def compose(path):
         if "dockerCommand" in svc:
             # Render's dockerCommand replaces CMD; the image ENTRYPOINT still runs.
             c["command"] = [compose_escape(a) for a in shlex.split(svc["dockerCommand"])]
+        if os.environ.get("E2E_MEM_LIMIT"):
+            # Mirror a Render instance size, e.g. 512m for the default new service.
+            c["mem_limit"] = os.environ["E2E_MEM_LIMIT"]
         if "disk" in svc:
             volumes[svc["disk"]["name"]] = {}
             c["volumes"] = [f"{svc['disk']['name']}:{svc['disk']['mountPath']}"]

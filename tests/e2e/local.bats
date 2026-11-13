@@ -75,13 +75,21 @@ proc1_env() { $DC exec -T "$1" sh -c "tr '\\0' '\\n' < /proc/1/environ" | sed -n
 # An env var as a service's Blueprint dockerCommand builds it: the command's
 # script with its final exec swapped for printenv. Puma and Sidekiq rewrite
 # their process title over /proc/1/environ, so it can't be read there.
+# The part of a service's Blueprint dockerCommand before its final exec: the
+# environment setup it does. Empty for a plain command; fails loudly on a
+# missing service or an sh -c script without exec.
 command_prefix() {
   python3 -c 'import shlex, sys, yaml
 bp = yaml.safe_load(open(sys.argv[1]))
-cmd = next(s for s in bp["services"] if s["name"] == sys.argv[2]).get("dockerCommand")
-args = shlex.split(cmd or "")
-script = args[2] if args[:2] in (["/bin/sh", "-c"], ["sh", "-c"]) else ""
-print(script.split("exec ", 1)[0] if "exec " in script else "", end="")' "${E2E_DIR}/render.yaml" "$1"
+svc = [s for s in bp["services"] if s["name"] == sys.argv[2]]
+if not svc:
+    sys.exit(f"no service {sys.argv[2]!r} in the Blueprint")
+args = shlex.split(svc[0].get("dockerCommand") or "")
+if args[:2] not in (["/bin/sh", "-c"], ["sh", "-c"]):
+    sys.exit(0)
+if "exec " not in args[2]:
+    sys.exit(f"{sys.argv[2]}: sh -c dockerCommand has no exec: {args[2]!r}")
+print(args[2].split("exec ", 1)[0], end="")' "${E2E_DIR}/render.yaml" "$1"
 }
 
 command_env() { $DC exec -T "$1-e2e" sh -c "$(command_prefix "$1")exec printenv $2"; }
@@ -101,9 +109,17 @@ begin
 rescue Assistant::Error => e
   puts "E2E_RESULT #{e.message}"
 end'
-  $DC exec -T -e POSTHOG_FEEDBACK_ENABLED=false -e E2E_TOKEN="${2:-}" "$1-e2e" \
-    sh -c "$(command_prefix "$1")exec ./bin/rails runner \"\$1\"" _ "$ruby" 2>&1 | sed -n 's/^E2E_RESULT //p'
+  local prefix log="${BATS_TEST_TMPDIR}/sure_chat-$1.log"
+  prefix="$(command_prefix "$1")" || return 1
+  # A one-off container with the service's configuration, so a second Rails
+  # process doesn't share (or, under E2E_MEM_LIMIT, skew) the service's memory.
+  $DC run --rm --no-deps -T -e POSTHOG_FEEDBACK_ENABLED=false -e E2E_TOKEN="${2:-}" --entrypoint sh "$1-e2e" \
+    -c "${prefix}exec ./bin/rails runner \"\$1\"" _ "$ruby" > "$log" 2>&1
+  sed -n 's/^E2E_RESULT //p' "$log"
 }
+
+# The end of sure_chat's full output, for failure messages.
+sure_chat_log() { tail -n 25 "${BATS_TEST_TMPDIR}/sure_chat-$1.log" 2>/dev/null; }
 
 @test "compose runs the image tag the branch pins (or E2E_IMAGE)" {
   want="${E2E_IMAGE:-ghcr.io/we-promise/sure:$(tag_of "$E2E_BRANCH")}"
@@ -183,10 +199,12 @@ if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
 
 @test "external AI: Sure's assistant client reaches AlphaClaw with the shared token, from web and worker (no model call)" {
   # Chat replies run in Sidekiq, so the worker's start command must build the
-  # same working configuration as web's.
+  # same configuration as web's.
+  url="$(command_env sure-web EXTERNAL_ASSISTANT_URL)"
+  [ "$(command_env sure-worker EXTERNAL_ASSISTANT_URL)" = "$url" ] || { echo "web and worker build different URLs"; false; }
   deadline=$((SECONDS + 300))
   until [ "$(sure_chat sure-web wrong-token)" = "External assistant returned HTTP 401." ]; do
-    (( SECONDS < deadline )) || { echo "wrong token: $(sure_chat sure-web wrong-token)"; echo "EXTERNAL_ASSISTANT_URL=$(command_env sure-web EXTERNAL_ASSISTANT_URL)"; $DC logs --tail 40 "$ALPHACLAW"; false; }
+    (( SECONDS < deadline )) || { echo "EXTERNAL_ASSISTANT_URL=$url, wrong token:"; sure_chat_log sure-web; $DC logs --tail 40 "$ALPHACLAW"; false; }
     sleep 5
   done
   # With the right token AlphaClaw forwards to its OpenClaw gateway, which
@@ -194,13 +212,17 @@ if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
   # provider and isn't run here, so 502 is the expected end state.
   for svc in sure-web sure-worker; do
     run sure_chat "$svc"
-    [ "$output" = "External assistant returned HTTP 502." ] || { echo "$svc: $output"; false; }
+    [ "$output" = "External assistant returned HTTP 502." ] || { echo "$svc: $output"; sure_chat_log "$svc"; false; }
   done
   # AlphaClaw's own answers behind those statuses, so another 401 or 502 can't pass.
-  url="$(command_env sure-web EXTERNAL_ASSISTANT_URL)"
   token="$($DC exec -T "$WEB" printenv EXTERNAL_ASSISTANT_TOKEN)"
-  run $DC exec -T "$WEB" curl -s -m 20 -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"model":"openclaw","messages":[]}' "$url"
-  [ "$output" = '{"error":"Gateway unavailable"}' ] || { echo "$output"; false; }
+  alphaclaw() { $DC exec -T "$WEB" curl -s -m 20 -H 'Content-Type: application/json' "$@" -d '{"model":"openclaw","messages":[]}' "$url"; }
+  run alphaclaw
+  [ "$output" = '{"error":"Unauthorized"}' ] || { echo "no token: $output"; false; }
+  run alphaclaw -H "Authorization: Bearer wrong-token"
+  [ "$output" = '{"error":"Unauthorized"}' ] || { echo "wrong token: $output"; false; }
+  run alphaclaw -H "Authorization: Bearer $token"
+  [ "$output" = '{"error":"Gateway unavailable"}' ] || { echo "shared token: $output"; false; }
 }
 
 @test "external AI: from AlphaClaw, its MCP URL and token list Sure's tools" {

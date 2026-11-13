@@ -138,3 +138,20 @@ PY
   [ "$status" -ne 0 ]
   [[ "$output" == *"alphaclaw.SETUP_PASSWORD"*"E2E_PROMPT_SETUP_PASSWORD"* ]]
 }
+
+@test "compose caps app services without swap only when E2E_MEM_LIMIT is set" {
+  python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${REPO_ROOT}/render.yaml" > "$WORK/uncapped.yaml"
+  E2E_MEM_LIMIT=512m python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${REPO_ROOT}/render.yaml" > "$WORK/capped.yaml"
+  run python3 - "$WORK/uncapped.yaml" "$WORK/capped.yaml" <<'PY'
+import sys, yaml
+free, capped = (yaml.safe_load(open(f))["services"] for f in sys.argv[1:])
+assert not any("mem_limit" in c or "memswap_limit" in c for c in free.values())
+for name, c in capped.items():
+    if name in ("postgres", "redis"):
+        assert "mem_limit" not in c, name
+    else:
+        assert c["mem_limit"] == c["memswap_limit"] == "512m", (name, c)
+PY
+  echo "$output"
+  [ "$status" -eq 0 ]
+}

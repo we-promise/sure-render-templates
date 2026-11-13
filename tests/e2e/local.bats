@@ -162,20 +162,25 @@ print(args[2] if args[:2] in (["/bin/sh", "-c"], ["sh", "-c"]) else "")' "${E2E_
 # Registered only for the external AI profile, so other profiles don't show skips.
 if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
 
-@test "external AI: Sure reaches AlphaClaw's chat endpoint with the shared token" {
+@test "external AI: Sure reaches AlphaClaw and its shared token is accepted (no model call)" {
   url="$(command_env sure-web EXTERNAL_ASSISTANT_URL)"
   [ "$(command_env sure-worker EXTERNAL_ASSISTANT_URL)" = "$url" ] || { echo "web and worker build different URLs"; false; }
   body='{"model":"e2e","messages":[{"role":"user","content":"ping"}]}'
-  post() { $DC exec -T "$WEB" curl -s -o /dev/null -w '%{http_code}' -m 20 -H 'Content-Type: application/json' "$@" -d "$body" "$url"; }
+  # Prints "<status> <body>" for a chat request sent from sure-web with the given token.
+  chat() { $DC exec -T "$WEB" sh -c 'curl -s -m 20 -w " %{http_code}" -H "Content-Type: application/json" ${1:+-H "Authorization: Bearer $1"} -d "$2" "$3"' _ "$1" "$body" "$url" | awk '{s=$NF; $NF=""; sub(/ $/, ""); print s, $0}'; }
   deadline=$((SECONDS + 300))
-  until [ "$(post)" = 401 ]; do
-    (( SECONDS < deadline )) || { echo "EXTERNAL_ASSISTANT_URL=$url: no 401 from AlphaClaw without a token (got $(post))"; $DC logs --tail 40 "$ALPHACLAW"; false; }
+  until [ "$(chat '')" = '401 {"error":"Unauthorized"}' ]; do
+    (( SECONDS < deadline )) || { echo "EXTERNAL_ASSISTANT_URL=$url: expected AlphaClaw's 401 without a token, got: $(chat '')"; $DC logs --tail 40 "$ALPHACLAW"; false; }
     sleep 5
   done
-  # AlphaClaw accepts the token; the gateway behind it only starts after
-  # first-run setup, which needs a model provider, so any non-401 passes.
-  status="$($DC exec -T "$WEB" sh -c 'curl -s -o /dev/null -w "%{http_code}" -m 20 -H "Content-Type: application/json" -H "Authorization: Bearer $EXTERNAL_ASSISTANT_TOKEN" -d "$1" "$2"' _ "$body" "$url")"
-  [ "$status" != 401 ] && [ "$status" != 000 ] || { echo "with EXTERNAL_ASSISTANT_TOKEN: $status"; false; }
+  run chat wrong-token
+  [ "$output" = '401 {"error":"Unauthorized"}' ] || { echo "wrong token: $output"; false; }
+  # With the right token AlphaClaw forwards to its OpenClaw gateway. The
+  # gateway starts only after first-run setup, which needs a model provider
+  # and isn't run here, so this exact answer is the expected end state.
+  token="$($DC exec -T "$WEB" printenv EXTERNAL_ASSISTANT_TOKEN)"
+  run chat "$token"
+  [ "$output" = '502 {"error":"Gateway unavailable"}' ] || { echo "EXTERNAL_ASSISTANT_TOKEN: $output"; false; }
 }
 
 @test "external AI: AlphaClaw lists Sure's MCP tools" {

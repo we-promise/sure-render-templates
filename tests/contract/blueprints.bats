@@ -89,8 +89,8 @@ q() { $BPQ "$@"; }
 @test "sure-worker runs Sidekiq and shares sure-web's SECRET_KEY_BASE" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
     run q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]'
-    # External AI wraps the same command to build EXTERNAL_ASSISTANT_URL (checked exactly below).
-    [[ "$output" == "bundle exec sidekiq" || "$f" == */sure-external-ai* ]] || { echo "$f $output"; false; }
+    # External AI wraps the same command to build EXTERNAL_ASSISTANT_URL.
+    [[ "$output" == "bundle exec sidekiq" || ( "$f" == */branches/sure-external-ai/render.yaml && "$output" == "/bin/sh -c '"*"\" exec bundle exec sidekiq'" ) ]] || { echo "$f $output"; false; }
     run q "$f" '[e["fromService"] for s in svcs if s["name"]=="sure-worker" for e in s["envVars"] if e["key"]=="SECRET_KEY_BASE"]'
     [ "$output" = "{'type': 'web', 'name': 'sure-web', 'envVarKey': 'SECRET_KEY_BASE'}" ] || { echo "$f $output"; false; }
   done

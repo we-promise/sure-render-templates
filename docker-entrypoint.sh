@@ -20,6 +20,8 @@ fi
 # host and the MCP URL is built here.
 if [ -z "${REMOTE_MCP_URL}" ] && [ -n "${SURE_WEB_HOST}" ]; then
   export REMOTE_MCP_URL="http://${SURE_WEB_HOST}:3000/mcp"
+elif [ -z "${REMOTE_MCP_URL}" ]; then
+  echo "docker-entrypoint: neither REMOTE_MCP_URL nor SURE_WEB_HOST is set; AlphaClaw starts without Sure's MCP" >&2
 fi
 
 exec /usr/bin/tini -- alphaclaw start

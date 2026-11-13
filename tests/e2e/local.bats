@@ -72,9 +72,6 @@ is_external_ai() { [ "$(flavor_of "$E2E_BRANCH")" = sure-external-ai ]; }
 # values that `docker compose exec` would not inherit).
 proc1_env() { $DC exec -T "$1" sh -c "tr '\\0' '\\n' < /proc/1/environ" | sed -n "s/^$2=//p"; }
 
-# An env var as a service's Blueprint dockerCommand builds it: the command's
-# script with its final exec swapped for printenv. Puma and Sidekiq rewrite
-# their process title over /proc/1/environ, so it can't be read there.
 # The part of a service's Blueprint dockerCommand before its final exec: the
 # environment setup it does. Empty for a plain command; fails loudly on a
 # missing service or an sh -c script without exec.
@@ -92,6 +89,9 @@ if "exec " not in args[2]:
 print(args[2].split("exec ", 1)[0], end="")' "${E2E_DIR}/render.yaml" "$1"
 }
 
+# An env var as a service's Blueprint dockerCommand builds it: the command's
+# script with its final exec swapped for printenv. Puma and Sidekiq rewrite
+# their process title over /proc/1/environ, so it can't be read there.
 command_env() { $DC exec -T "$1-e2e" sh -c "$(command_prefix "$1")exec printenv $2"; }
 
 # Sends one chat message through Sure's own external assistant client, in the

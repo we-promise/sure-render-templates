@@ -1,6 +1,6 @@
 #!/bin/sh
 # Seed AlphaClaw's config so the OpenAI-compatible proxy (/v1/*) is enabled on
-# first boot: alphaclaw (verified through 0.9.34) defaults
+# first boot: alphaclaw (verified through 0.9.37) defaults
 # features.openaiCompatApi to disabled (404 on /v1/chat/completions), and Sure
 # calls that endpoint right after deploy. The seed only applies when no config
 # exists yet: onboarding's ensureGatewayProxyConfig then flips on the matching

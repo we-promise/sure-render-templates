@@ -1,6 +1,6 @@
 #!/bin/sh
 # Seed AlphaClaw's config so the OpenAI-compatible proxy (/v1/*) is enabled on
-# first boot: alphaclaw (verified through 0.9.34) defaults
+# first boot: alphaclaw (verified through 0.9.37) defaults
 # features.openaiCompatApi to disabled (404 on /v1/chat/completions), and Sure
 # calls that endpoint right after deploy. The seed only applies when no config
 # exists yet: onboarding's ensureGatewayProxyConfig then flips on the matching
@@ -14,6 +14,14 @@ CFG="${CFG_DIR}/alphaclaw.json"
 if [ ! -f "${CFG}" ]; then
   mkdir -p "${CFG_DIR}"
   printf '{\n  "features": {\n    "openaiCompatApi": {\n      "enabled": true\n    }\n  }\n}\n' > "${CFG}"
+fi
+
+# Render can suffix private hostnames, so the Blueprint passes sure-web's real
+# host and the MCP URL is built here.
+if [ -z "${REMOTE_MCP_URL}" ] && [ -n "${SURE_WEB_HOST}" ]; then
+  export REMOTE_MCP_URL="http://${SURE_WEB_HOST}:3000/mcp"
+elif [ -z "${REMOTE_MCP_URL}" ]; then
+  echo "docker-entrypoint: neither REMOTE_MCP_URL nor SURE_WEB_HOST is set; AlphaClaw starts without Sure's MCP" >&2
 fi
 
 exec /usr/bin/tini -- alphaclaw start

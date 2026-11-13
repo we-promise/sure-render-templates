@@ -11,9 +11,9 @@
     "dev:shell": "docker compose exec alphaclaw bash"
   },
   "dependencies": {
-    "@chrysb/alphaclaw": "0.9.34"
+    "@chrysb/alphaclaw": "0.9.37"
   },
   "engines": {
-    "node": ">=22.14.0"
+    "node": ">=24.16.0 <25 || >=26.1.0"
   }
 }

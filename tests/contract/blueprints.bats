@@ -88,7 +88,9 @@ q() { $BPQ "$@"; }
 
 @test "sure-worker runs Sidekiq and shares sure-web's SECRET_KEY_BASE" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
-    [ "$(q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]')" = "bundle exec sidekiq" ]
+    run q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]'
+    # External AI wraps the same command to build EXTERNAL_ASSISTANT_URL.
+    [[ "$output" == "bundle exec sidekiq" || ( "$f" == */branches/sure-external-ai/render.yaml && "$output" == "/bin/sh -c '"*"\" exec bundle exec sidekiq'" ) ]] || { echo "$f $output"; false; }
     run q "$f" '[e["fromService"] for s in svcs if s["name"]=="sure-worker" for e in s["envVars"] if e["key"]=="SECRET_KEY_BASE"]'
     [ "$output" = "{'type': 'web', 'name': 'sure-web', 'envVarKey': 'SECRET_KEY_BASE'}" ] || { echo "$f $output"; false; }
   done
@@ -103,10 +105,19 @@ q() { $BPQ "$@"; }
 
 @test "compose/Render translation accepts no-AI and simple-AI Blueprints" {
   # This validates generated PR templates, not the published deploy branches.
-  # External AI still uses unsupported docker-runtime services/prompted secrets.
   for b in sure-no-ai sure-no-ai-latest sure-simple-ai sure-simple-ai-latest; do
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${GEN_DIR}/$b.yaml" >/dev/null
     python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${GEN_DIR}/$b.yaml" t0 >/dev/null
+  done
+}
+
+@test "compose translation accepts External AI Blueprints; the Render plan doesn't build AlphaClaw yet" {
+  export E2E_PROMPT_SETUP_PASSWORD=s E2E_PROMPT_GITHUB_TOKEN=g E2E_PROMPT_GITHUB_WORKSPACE_REPO=r E2E_PROMPT_MCP_USER_EMAIL=u
+  for b in sure-external-ai sure-external-ai-latest; do
+    python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${GEN_DIR}/$b.yaml" >/dev/null
+    run python3 "${REPO_ROOT}/tests/lib/blueprint.py" render-plan "${GEN_DIR}/$b.yaml" t0
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"service alphaclaw: only runtime=image is supported"* ]]
   done
 }
 
@@ -150,19 +161,33 @@ q() { $BPQ "$@"; }
 }
 
 @test "external AI retains its assistant selection and generated gateway and MCP wiring" {
+  local EXT_URL='EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}"'
+  local EXT_WEB_CMD="/bin/sh -c '${EXT_URL} exec /rails/bin/docker-entrypoint ./bin/rails server'"
+  local EXT_WORKER_CMD="/bin/sh -c '${EXT_URL} exec bundle exec sidekiq'"
   for f in "${REPO_ROOT}/branches/sure-external-ai/render.yaml" "${GEN_DIR}"/sure-external-ai*.yaml; do
     for name in sure-web sure-worker; do
       run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ASSISTANT_TYPE']"
       [ "$status" -eq 0 ]
       [ "$output" = "external" ]
-      run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
+      # Render can suffix private hostnames, so the URL is built from AlphaClaw's real host.
+      run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ALPHACLAW_HOST']"
       [ "$status" -eq 0 ]
-      [ "$output" = "http://alphaclaw:3000/v1/chat/completions" ]
+      [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'property': 'host'}" ]
+      # Exact commands: web must still exec the image entrypoint (it runs db:prepare).
+      [ "$name" = sure-web ] && want="$EXT_WEB_CMD" || want="$EXT_WORKER_CMD"
+      run q "$f" "[s.get('dockerCommand') for s in svcs if s['name']=='$name']"
+      [ "$output" = "$want" ] || { echo "$f $name: $output"; false; }
+      run q "$f" "[e['key'] for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
+      [ -z "$output" ] || { echo "$f $name hardcodes EXTERNAL_ASSISTANT_URL"; false; }
       run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_TOKEN']"
       [ "$status" -eq 0 ]
       [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'envVarKey': 'OPENCLAW_GATEWAY_TOKEN'}" ]
     done
     [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="alphaclaw" for e in s["envVars"] if e["key"]=="OPENCLAW_GATEWAY_TOKEN"] == [True]')" = "true" ]
+    run q "$f" "[e.get('fromService') for s in svcs if s['name']=='alphaclaw' for e in s['envVars'] if e['key']=='SURE_WEB_HOST']"
+    [ "$output" = "{'type': 'web', 'name': 'sure-web', 'property': 'host'}" ] || { echo "$f $output"; false; }
+    run q "$f" "[e['key'] for s in svcs if s['name']=='alphaclaw' for e in s['envVars'] if e['key']=='REMOTE_MCP_URL']"
+    [ -z "$output" ] || { echo "$f hardcodes REMOTE_MCP_URL"; false; }
     [ "$(q "$f" '[e.get("generateValue") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_API_TOKEN"] == [True]')" = "true" ]
     [ "$(q "$f" '[e.get("sync") for s in svcs if s["name"]=="sure-web" for e in s["envVars"] if e["key"]=="MCP_USER_EMAIL"] == [False]')" = "true" ]
   done

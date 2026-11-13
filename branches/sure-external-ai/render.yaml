@@ -29,8 +29,13 @@ services:
         value: "3000"
       - key: ALPHACLAW_ROOT_DIR
         value: /data
-      - key: REMOTE_MCP_URL
-        value: http://sure-web:3000/mcp
+      # Render can suffix private hostnames (sure-web-2clo); the entrypoint
+      # builds REMOTE_MCP_URL from the real one.
+      - key: SURE_WEB_HOST
+        fromService:
+          type: web
+          name: sure-web
+          property: host
       - key: REMOTE_MCP_API_TOKEN
         fromService:
           type: web
@@ -54,6 +59,7 @@ services:
     # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
     # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
+    dockerCommand: /bin/sh -c 'EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}" exec /rails/bin/docker-entrypoint ./bin/rails server'
     healthCheckPath: /
     disk:
       name: sure-storage
@@ -97,8 +103,13 @@ services:
         sync: false
       - key: ASSISTANT_TYPE
         value: external
-      - key: EXTERNAL_ASSISTANT_URL
-        value: http://alphaclaw:3000/v1/chat/completions
+      # Blueprints can't interpolate, so dockerCommand builds
+      # EXTERNAL_ASSISTANT_URL from AlphaClaw's real private hostname.
+      - key: ALPHACLAW_HOST
+        fromService:
+          type: web
+          name: alphaclaw
+          property: host
       - key: EXTERNAL_ASSISTANT_TOKEN
         fromService:
           type: web
@@ -118,7 +129,7 @@ services:
     # Omit plan: Render preserves existing sizing; new services use paid 512 MB.
     # Choose a larger size in Render when needed. See README.md#service-sizing.
     autoDeployTrigger: off
-    dockerCommand: bundle exec sidekiq
+    dockerCommand: /bin/sh -c 'EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}" exec bundle exec sidekiq'
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -164,8 +175,13 @@ services:
           envVarKey: MCP_USER_EMAIL
       - key: ASSISTANT_TYPE
         value: external
-      - key: EXTERNAL_ASSISTANT_URL
-        value: http://alphaclaw:3000/v1/chat/completions
+      # Blueprints can't interpolate, so dockerCommand builds
+      # EXTERNAL_ASSISTANT_URL from AlphaClaw's real private hostname.
+      - key: ALPHACLAW_HOST
+        fromService:
+          type: web
+          name: alphaclaw
+          property: host
       - key: EXTERNAL_ASSISTANT_TOKEN
         fromService:
           type: web

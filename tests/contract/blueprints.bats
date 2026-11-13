@@ -89,7 +89,8 @@ q() { $BPQ "$@"; }
 @test "sure-worker runs Sidekiq and shares sure-web's SECRET_KEY_BASE" {
   for f in "${REPO_ROOT}"/branches/*/render.yaml; do
     run q "$f" '[s.get("dockerCommand") for s in svcs if s["name"]=="sure-worker"]'
-    [[ "$output" == "bundle exec sidekiq" || "$output" == *"exec bundle exec sidekiq'" ]] || { echo "$f $output"; false; }
+    # External AI wraps the same command to build EXTERNAL_ASSISTANT_URL (checked exactly below).
+    [[ "$output" == "bundle exec sidekiq" || "$f" == */sure-external-ai* ]] || { echo "$f $output"; false; }
     run q "$f" '[e["fromService"] for s in svcs if s["name"]=="sure-worker" for e in s["envVars"] if e["key"]=="SECRET_KEY_BASE"]'
     [ "$output" = "{'type': 'web', 'name': 'sure-web', 'envVarKey': 'SECRET_KEY_BASE'}" ] || { echo "$f $output"; false; }
   done
@@ -160,6 +161,9 @@ q() { $BPQ "$@"; }
 }
 
 @test "external AI retains its assistant selection and generated gateway and MCP wiring" {
+  local EXT_URL='EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}"'
+  local EXT_WEB_CMD="/bin/sh -c '${EXT_URL} exec /rails/bin/docker-entrypoint ./bin/rails server'"
+  local EXT_WORKER_CMD="/bin/sh -c '${EXT_URL} exec bundle exec sidekiq'"
   for f in "${REPO_ROOT}/branches/sure-external-ai/render.yaml" "${GEN_DIR}"/sure-external-ai*.yaml; do
     for name in sure-web sure-worker; do
       run q "$f" "[e.get('value') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ASSISTANT_TYPE']"
@@ -169,8 +173,10 @@ q() { $BPQ "$@"; }
       run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='ALPHACLAW_HOST']"
       [ "$status" -eq 0 ]
       [ "$output" = "{'type': 'web', 'name': 'alphaclaw', 'property': 'host'}" ]
+      # Exact commands: web must still exec the image entrypoint (it runs db:prepare).
+      [ "$name" = sure-web ] && want="$EXT_WEB_CMD" || want="$EXT_WORKER_CMD"
       run q "$f" "[s.get('dockerCommand') for s in svcs if s['name']=='$name']"
-      [[ "$output" == *'EXTERNAL_ASSISTANT_URL="${EXTERNAL_ASSISTANT_URL:-http://${ALPHACLAW_HOST}:3000/v1/chat/completions}"'* ]] || { echo "$f $name: $output"; false; }
+      [ "$output" = "$want" ] || { echo "$f $name: $output"; false; }
       run q "$f" "[e['key'] for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_URL']"
       [ -z "$output" ] || { echo "$f $name hardcodes EXTERNAL_ASSISTANT_URL"; false; }
       run q "$f" "[e.get('fromService') for s in svcs if s['name']=='$name' for e in s['envVars'] if e['key']=='EXTERNAL_ASSISTANT_TOKEN']"

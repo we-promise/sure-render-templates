@@ -94,7 +94,8 @@ print(args[2] if args[:2] in (["/bin/sh", "-c"], ["sh", "-c"]) else "")' "${E2E_
 }
 
 @test "web and worker are running, not restart-looping" {
-  for svc in "$WEB" "$WORKER"; do
+  svcs=("$WEB" "$WORKER"); is_external_ai && svcs+=("$ALPHACLAW")
+  for svc in "${svcs[@]}"; do
     state="$($DC ps --format '{{.State}}' "$svc")"
     [ "$state" = "running" ] || { echo "$svc state=$state"; false; }
   done
@@ -162,7 +163,7 @@ print(args[2] if args[:2] in (["/bin/sh", "-c"], ["sh", "-c"]) else "")' "${E2E_
 # Registered only for the external AI profile, so other profiles don't show skips.
 if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
 
-@test "external AI: Sure reaches AlphaClaw and its shared token is accepted (no model call)" {
+@test "external AI: from Sure, the built URL reaches AlphaClaw and the shared token is accepted (no model call)" {
   url="$(command_env sure-web EXTERNAL_ASSISTANT_URL)"
   [ "$(command_env sure-worker EXTERNAL_ASSISTANT_URL)" = "$url" ] || { echo "web and worker build different URLs"; false; }
   body='{"model":"e2e","messages":[{"role":"user","content":"ping"}]}'
@@ -183,7 +184,7 @@ if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
   [ "$output" = '502 {"error":"Gateway unavailable"}' ] || { echo "EXTERNAL_ASSISTANT_TOKEN: $output"; false; }
 }
 
-@test "external AI: AlphaClaw lists Sure's MCP tools" {
+@test "external AI: from AlphaClaw, its MCP URL and token list Sure's tools" {
   url="$(proc1_env "$ALPHACLAW" REMOTE_MCP_URL)"
   echo "REMOTE_MCP_URL=$url"
   # Runs as the demo user (MCP_USER_EMAIL), so it follows the demo data test.

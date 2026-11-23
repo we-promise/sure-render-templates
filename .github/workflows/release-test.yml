@@ -6,9 +6,17 @@ run-name: release test ${{ inputs.channel }} ${{ inputs.sure_tag }}
 #   latest:  local e2e + Render e2e on the -latest deploy branches (alphas)
 #   nightly: local e2e only, sure-no-ai's Blueprint running the exact
 #            :nightly digest
-# Render e2e creates billable resources (~$0.03-0.07/run). Kill switch: set
-# the repo variable RENDER_E2E_ON_RELEASE to "false". Without the
-# RENDER_API_KEY secret the Render jobs skip with a notice.
+# Each channel runs two Render e2e jobs per branch: the full flow (migrations,
+# new-user smoke, Sidekiq, demo data, demo-user smoke) at a 2 GB e2e-only web
+# plan, because demo data is OOM-killed at the 512 MB default, and a separate
+# onboarding-only check at the faithful 512 MB Blueprint default, so a
+# starter-plan onboarding failure stays visible per release without blocking
+# the release verdict (continue-on-error). The 2 GB plan exists only inside
+# these runs; the deploy branches' Blueprints are unchanged. Cost while
+# running: ~$0.088/h full + ~$0.063/h onboarding, prorated per second, torn
+# down after each run. Kill switch: set the repo variable
+# RENDER_E2E_ON_RELEASE to "false". Without the RENDER_API_KEY secret the
+# Render jobs skip with a notice.
 on:
   workflow_dispatch:
     inputs:
@@ -21,9 +29,9 @@ on:
         description: 'Release tag (e.g. v0.7.4) or, for nightly, the image digest (sha256:...)'
         required: true
       web_plan:
-        description: 'Optional e2e-only web plan override (e.g. "standard" = 1c-2g); blank = 512 MB default'
+        description: 'Web plan for the full-flow Render e2e (legacy API name). Default "standard" (1c-2g, 2 GB) so demo data fits in memory; one-off jobs inherit it. Blank = faithful 512 MB Blueprint default'
         required: false
-        default: ''
+        default: standard
       worker_plan:
         description: 'Optional e2e-only worker plan override; blank = 512 MB default'
         required: false
@@ -141,4 +149,29 @@ jobs:
       worker_plan: ${{ inputs.worker_plan }}
       image_digest: ${{ needs.plan.outputs.image_digest }}
       image_label: ${{ needs.plan.outputs.image_label }}
+    secrets: inherit
+
+  render-onboarding:
+    name: onboarding at 512 MB (${{ matrix.branch }})
+    needs: [plan, e2e-local]
+    if: needs.plan.outputs.render == 'true'
+    # The release verdict comes from the 2 GB full-flow job above. This check
+    # re-runs onboarding at the faithful 512 MB Blueprint default so a
+    # starter-plan failure stays visible per release; allow_failure keeps a
+    # failed check from blocking the run's verdict.
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.plan.outputs.branches) }}
+    uses: ./.github/workflows/render-e2e.yml
+    with:
+      branch: ${{ matrix.branch }}
+      confirm_cost: 'yes'
+      web_plan: ''
+      worker_plan: ''
+      image_digest: ${{ needs.plan.outputs.image_digest }}
+      image_label: ${{ needs.plan.outputs.image_label }}
+      phases: 'migrations applied|new-user smoke'
+      run_label: onboarding
+      allow_failure: true
     secrets: inherit

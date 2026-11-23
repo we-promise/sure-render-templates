@@ -124,6 +124,27 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   calls | grep -q '^DELETE /services/srv-web'
 }
 
+@test "E2E_PHASES subset: only the selected phases are required and run" {
+  E2E_PHASES="migrations applied|new-user smoke" run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"phase subset: migrations applied new-user smoke"* ]]
+  [[ "$output" == *"pass: migrations applied"* ]]
+  [[ "$output" == *"pass: new-user smoke"* ]]
+  [[ "$output" == *"PASS sure-no-ai on Render (all phases passed)"* ]]
+  [[ "$output" != *"demo data load"* ]]
+  calls | grep -q '^SMOKE new-user'
+  ! calls | grep -q '^SMOKE demo'
+  # only the migrations job ran; no Sidekiq or demo-data one-off jobs
+  [ "$(calls | grep -c '^POST /services/srv-web/jobs')" -eq 1 ]
+}
+
+@test "E2E_PHASES rejects an unknown phase before anything is created" {
+  E2E_PHASES=bogus run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown phase in E2E_PHASES: 'bogus'"* ]]
+  [ "$(calls | grep -c '')" -eq 0 ]
+}
+
 @test "a failed demo smoke alone fails the run" {
   STUB_DEMO_SMOKE_RC=1 run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -ne 0 ]

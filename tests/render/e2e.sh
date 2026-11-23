@@ -16,6 +16,9 @@
 #     digest when the caller knows it); unset = resolve the branch's tag with
 #     docker (mutable tags move; see the pin note below).
 #   E2E_IMAGE_LABEL   optional requested-release label logged with the digest.
+#   E2E_PHASES        "all" (default) or pipe-separated phase names to require
+#     and run, e.g. "migrations applied|new-user smoke" for an onboarding-only
+#     check. Unselected phases are absent from the report, never passed.
 #   E2E_KEEP=1        skip teardown (debugging only; the sweeper still deletes after 2h)
 #   RENDER_API_KEY, optional RENDER_OWNER_ID / RENDER_REGION
 set -euo pipefail
@@ -26,7 +29,29 @@ source "$ROOT/tests/render/lib.sh"
 source "$ROOT/tests/render/phases.sh"
 
 # Every phase below is required. The run is green only if all of them pass.
-phase_expect "migrations applied" "new-user smoke" "Sidekiq worker registered" "demo data load" "demo-user smoke"
+# E2E_PHASES selects a subset (pipe-separated names, or "all" / unset for the
+# full set); the release test's 512 MB onboarding check runs only
+# "migrations applied|new-user smoke". An unknown name dies here, before
+# anything billable is created.
+ALL_PHASES=("migrations applied" "new-user smoke" "Sidekiq worker registered" "demo data load" "demo-user smoke")
+SELECTED_PHASES=("${ALL_PHASES[@]}")
+if [ -n "${E2E_PHASES:-}" ] && [ "$E2E_PHASES" != "all" ]; then
+  IFS='|' read -r -a SELECTED_PHASES <<<"$E2E_PHASES"
+fi
+for p in "${SELECTED_PHASES[@]}"; do
+  known=""
+  for a in "${ALL_PHASES[@]}"; do
+    if [ "$p" = "$a" ]; then known=1; break; fi
+  done
+  [ -n "$known" ] || die "unknown phase in E2E_PHASES: '$p' (known: $(IFS='|'; echo "${ALL_PHASES[*]}"))"
+done
+phase_expect "${SELECTED_PHASES[@]}"
+phase_selected() {
+  local p
+  for p in "${SELECTED_PHASES[@]}"; do [ "$p" = "$1" ] && return 0; done
+  return 1
+}
+[ "${#SELECTED_PHASES[@]}" -eq "${#ALL_PHASES[@]}" ] || log "phase subset: ${SELECTED_PHASES[*]}"
 
 BRANCH="${E2E_BRANCH:-sure-no-ai}"
 RUN="${E2E_RUN:-${GITHUB_RUN_ID:-$(date +%s)}}"
@@ -238,18 +263,28 @@ run_job() {
 [ -n "${web_sid:-}" ] || die "no web service id"
 # Phases. A failure does not stop phases that don't need it; a phase whose
 # prerequisite did not pass is reported skipped, never passed.
-phase_run "migrations applied" "" run_job "$web_sid" "migrations applied" \
-  "bin/rails runner 'exit(ActiveRecord::Base.connection_pool.migration_context.needs_migration? ? 1 : 0)'"
+if phase_selected "migrations applied"; then
+  phase_run "migrations applied" "" run_job "$web_sid" "migrations applied" \
+    "bin/rails runner 'exit(ActiveRecord::Base.connection_pool.migration_context.needs_migration? ? 1 : 0)'"
+fi
 
 # smoke.py reports its own sub-steps (it keeps going after a soft failure).
-phase_run "new-user smoke" "migrations applied" python3 "$ROOT/tests/lib/smoke.py" "$web_url"
+if phase_selected "new-user smoke"; then
+  phase_run "new-user smoke" "migrations applied" python3 "$ROOT/tests/lib/smoke.py" "$web_url"
+fi
 
-phase_run "Sidekiq worker registered" "migrations applied" run_job "$web_sid" "Sidekiq worker registered" \
-  "bin/rails runner 'require \"sidekiq/api\"; exit(Sidekiq::ProcessSet.new.size >= 1 ? 0 : 1)'"
+if phase_selected "Sidekiq worker registered"; then
+  phase_run "Sidekiq worker registered" "migrations applied" run_job "$web_sid" "Sidekiq worker registered" \
+    "bin/rails runner 'require \"sidekiq/api\"; exit(Sidekiq::ProcessSet.new.size >= 1 ? 0 : 1)'"
+fi
 
 # Demo data the README way, then the demo user must see it.
-phase_run "demo data load" "migrations applied" run_job "$web_sid" "rake demo_data:default" "bundle exec rake demo_data:default" 1500
-phase_run "demo-user smoke" "demo data load" python3 "$ROOT/tests/lib/smoke.py" "$web_url" --demo
+if phase_selected "demo data load"; then
+  phase_run "demo data load" "migrations applied" run_job "$web_sid" "rake demo_data:default" "bundle exec rake demo_data:default" 1500
+fi
+if phase_selected "demo-user smoke"; then
+  phase_run "demo-user smoke" "demo data load" python3 "$ROOT/tests/lib/smoke.py" "$web_url" --demo
+fi
 
 # Exit status comes from the EXIT trap: it prints the phase table, dumps
 # diagnostics if anything is not "pass", tears down, and fails the run unless

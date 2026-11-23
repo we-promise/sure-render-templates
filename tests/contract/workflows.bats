@@ -51,6 +51,38 @@ triggers() {
   [[ "$output" == *"if: always()"* ]]
 }
 
+@test "release tests run the full flow at a 2 GB e2e-only plan plus a non-blocking 512 MB onboarding check" {
+  run python3 -c '
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+jobs = d["jobs"]
+# full flow: web plan input defaults to the 2 GB "standard"
+inp = d.get("on", d.get(True))["workflow_dispatch"]["inputs"]
+assert inp["web_plan"]["default"] == "standard", inp["web_plan"]
+# onboarding check: faithful 512 MB, onboarding phases only, non-blocking
+# (a reusable-workflow call cannot use continue-on-error, so the failure
+# tolerance lives in the called workflow via its allow_failure input)
+j = jobs["render-onboarding"]
+assert "continue-on-error" not in j
+assert j["if"] == "needs.plan.outputs.render == '"'"'true'"'"'"
+w = j["with"]
+assert w["web_plan"] == "" and w["worker_plan"] == "", w
+assert w["phases"] == "migrations applied|new-user smoke", w
+assert w["run_label"] == "onboarding", w
+assert w["confirm_cost"] == "yes", w
+assert w["allow_failure"] is True, w
+print("ok")' "${REPO_ROOT}/.github/workflows/release-test.yml"
+  [ "$output" = ok ]
+}
+
+@test "the Render e2e accepts a phase subset, a per-job run label and a non-blocking mode" {
+  run wf render-e2e.yml
+  [[ "$output" == *"E2E_PHASES"* ]]
+  [[ "$output" == *"inputs.run_label"* ]]
+  [[ "$output" == *"E2E_RUN"* ]]
+  [[ "$output" == *"continue-on-error: \${{ inputs.allow_failure }}"* ]]
+}
+
 @test "the test workflow fetches the deploy branches for the drift check" {
   run wf test.yml
   [[ "$output" == *"refs/heads/sure-*:refs/remotes/origin/sure-*"* ]]

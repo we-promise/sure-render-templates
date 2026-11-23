@@ -138,6 +138,17 @@ line_of() { grep -n -m1 -- "$1" "$STUB_DIR/calls.log" | cut -d: -f1; }
   [ "$(calls | grep -c '^POST /services/srv-web/jobs')" -eq 1 ]
 }
 
+@test "E2E_PHASES auto-includes unselected prerequisites before anything is created" {
+  E2E_PHASES="demo-user smoke" run "${REPO_ROOT}/tests/render/e2e.sh"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+  [[ "$output" == *"auto-including prerequisite 'demo data load' for 'demo-user smoke'"* ]]
+  [[ "$output" == *"auto-including prerequisite 'migrations applied'"* ]]
+  [[ "$output" == *"pass: migrations applied"* ]]
+  [[ "$output" == *"pass: demo data load"* ]]
+  [[ "$output" == *"pass: demo-user smoke"* ]]
+  [[ "$output" != *"skipped"* ]]
+}
+
 @test "E2E_PHASES rejects an unknown phase before anything is created" {
   E2E_PHASES=bogus run "${REPO_ROOT}/tests/render/e2e.sh"
   [ "$status" -ne 0 ]

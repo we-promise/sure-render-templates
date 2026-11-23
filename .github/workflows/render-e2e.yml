@@ -150,9 +150,15 @@ jobs:
         run: tests/render/e2e.sh
       - name: Teardown
         # Backstop for a cancelled or timed-out run; e2e.sh already tears down
-        # on exit. Safe to run twice.
+        # on exit. Safe to run twice. The suffix is built in shell from env
+        # (not expanded into the script) and normalized exactly like e2e.sh
+        # normalizes E2E_RUN, so the backstop matches the same resource names.
         if: always()
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_OWNER_ID: ${{ secrets.RENDER_OWNER_ID }}
-        run: tests/render/teardown.sh "${{ runner.temp }}/render-e2e-state.json" "${{ format('e2e-{0}{1}', github.run_id, inputs.run_label) }}"
+          RAW_RUN_LABEL: ${{ inputs.run_label }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          label=$(printf '%s' "$RAW_RUN_LABEL" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
+          tests/render/teardown.sh "${{ runner.temp }}/render-e2e-state.json" "e2e-${RUN_ID}${label}"

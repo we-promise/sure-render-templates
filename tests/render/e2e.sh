@@ -45,6 +45,30 @@ for p in "${SELECTED_PHASES[@]}"; do
   done
   [ -n "$known" ] || die "unknown phase in E2E_PHASES: '$p' (known: $(IFS='|'; echo "${ALL_PHASES[*]}"))"
 done
+# Auto-include unselected prerequisites (same edges as the phase_run calls
+# below) so an accepted subset never provisions paid resources for checks
+# that would only report "skipped".
+phase_needs() {
+  case "$1" in
+    "new-user smoke"|"Sidekiq worker registered"|"demo data load") echo "migrations applied" ;;
+    "demo-user smoke") echo "demo data load" ;;
+  esac
+}
+added=1
+while [ -n "$added" ]; do
+  added=""
+  for p in "${SELECTED_PHASES[@]}"; do
+    dep="$(phase_needs "$p")"
+    [ -n "$dep" ] || continue
+    found=""
+    for q in "${SELECTED_PHASES[@]}"; do [ "$q" = "$dep" ] && found=1; done
+    if [ -z "$found" ]; then
+      SELECTED_PHASES+=("$dep")
+      log "phase subset: auto-including prerequisite '$dep' for '$p'"
+      added=1
+    fi
+  done
+done
 phase_expect "${SELECTED_PHASES[@]}"
 phase_selected() {
   local p

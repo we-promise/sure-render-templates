@@ -47,7 +47,7 @@ triggers() {
 }
 
 @test "the Render e2e always tears down" {
-  run grep -A3 -E 'name: Teardown' "${REPO_ROOT}/.github/workflows/render-e2e.yml"
+  run grep -A6 -E 'name: Teardown' "${REPO_ROOT}/.github/workflows/render-e2e.yml"
   [[ "$output" == *"if: always()"* ]]
 }
 
@@ -81,6 +81,16 @@ print("ok")' "${REPO_ROOT}/.github/workflows/release-test.yml"
   [[ "$output" == *"inputs.run_label"* ]]
   [[ "$output" == *"E2E_RUN"* ]]
   [[ "$output" == *"continue-on-error: \${{ inputs.allow_failure }}"* ]]
+}
+
+@test "the backstop teardown normalizes the run label like e2e.sh and keeps it out of the shell template" {
+  run wf render-e2e.yml
+  # label reaches the script via env, not ${{ }} expansion in run:
+  [[ "$output" == *"RAW_RUN_LABEL: \${{ inputs.run_label }}"* ]]
+  [[ "$output" == *"tr -cd 'a-z0-9'"* ]]
+  # the teardown run: line must not expand inputs.* into shell code
+  run bash -c "grep -A2 'name: Teardown' '${REPO_ROOT}/.github/workflows/render-e2e.yml' | grep 'run:' || true"
+  [[ "$output" != *'run: tests/render/teardown.sh "${{ runner.temp }}/render-e2e-state.json" "${{ format'* ]]
 }
 
 @test "the test workflow fetches the deploy branches for the drift check" {

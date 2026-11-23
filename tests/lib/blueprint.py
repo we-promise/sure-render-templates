@@ -11,11 +11,21 @@ anything else fails loudly instead of being silently dropped.
 import json
 import os
 import secrets
+import shlex
 import sys
 
 import yaml
 
 SUPPORTED_SERVICE_TYPES = {"web", "worker", "keyvalue"}
+
+# Render can suffix every service name in a Blueprint (sure-web-2clo) when a
+# name is already taken in the workspace. Compose services get a suffix too,
+# so a hardcoded hostname fails here the way it fails on Render.
+COMPOSE_NAME_SUFFIX = "-e2e"
+
+# Values Render prompts for at deploy time (sync: false) come from
+# E2E_PROMPT_<KEY>; a missing one fails instead of deploying a blank value.
+PROMPT_ENV_PREFIX = "E2E_PROMPT_"
 
 # This adapter creates NEW throwaway services through the API, not Blueprint
 # updates. Mirror the Blueprint's omitted-plan creation default explicitly:
@@ -33,14 +43,14 @@ NEW_SERVICE_DEFAULT_PLAN = "starter"
 OVERRIDE_ENV = {"web": "E2E_PLAN_WEB", "worker": "E2E_PLAN_WORKER"}
 
 
-def load(path):
+def load(path, runtimes=("image",)):
     with open(path) as f:
         bp = yaml.safe_load(f)
     for svc in bp.get("services", []):
         if svc["type"] not in SUPPORTED_SERVICE_TYPES:
             sys.exit(f"unsupported service type {svc['type']!r} in {path}")
-        if svc["type"] != "keyvalue" and svc.get("runtime") != "image":
-            sys.exit(f"service {svc['name']}: only runtime=image is supported (got {svc.get('runtime')!r})")
+        if svc["type"] != "keyvalue" and svc.get("runtime") not in runtimes:
+            sys.exit(f"service {svc['name']}: only runtime={'/'.join(runtimes)} is supported (got {svc.get('runtime')!r})")
     return bp
 
 
@@ -55,14 +65,25 @@ def by_name(bp, name, kind):
     sys.exit(f"reference to missing {kind} {name!r}")
 
 
-def resolve_env(bp, svc, db_url, redis_url, generated):
+def prompted(service, key):
+    value = os.environ.get(PROMPT_ENV_PREFIX + key)
+    if not value:
+        sys.exit(f"{service}.{key}: prompted at deploy time; set {PROMPT_ENV_PREFIX}{key}")
+    return value
+
+
+def resolve_env(bp, svc, db_url, redis_url, generated, host_of=None):
     """Return {key: value} for a service. `generated` is shared across services
-    so fromService envVarKey references see the same generated value."""
+    so fromService envVarKey references see the same generated value.
+    `host_of(name)` gives a service's private hostname; without it, host
+    references are unsupported."""
     out = {}
     for ev in svc.get("envVars", []):
         key = ev["key"]
         if "value" in ev:
             out[key] = str(ev["value"])
+        elif ev.get("sync") is False:
+            out[key] = prompted(svc["name"], key)
         elif ev.get("generateValue"):
             out[key] = generated.setdefault((svc["name"], key), secrets.token_hex(64))
         elif "fromDatabase" in ev:
@@ -77,12 +98,16 @@ def resolve_env(bp, svc, db_url, redis_url, generated):
             target = by_name(bp, ref["name"], ref["type"])
             if ref["type"] == "keyvalue" and ref.get("property") == "connectionString":
                 out[key] = redis_url
+            elif ref["type"] == "web" and ref.get("property") == "host" and host_of:
+                out[key] = host_of(target["name"])
             elif "envVarKey" in ref:
                 src = [e for e in target.get("envVars", []) if e["key"] == ref["envVarKey"]]
                 if not src:
                     sys.exit(f"{svc['name']}.{key}: {target['name']} has no env var {ref['envVarKey']!r}")
                 if src[0].get("generateValue"):
                     out[key] = generated.setdefault((target["name"], ref["envVarKey"]), secrets.token_hex(64))
+                elif src[0].get("sync") is False:
+                    out[key] = prompted(target["name"], ref["envVarKey"])
                 else:
                     out[key] = str(src[0]["value"])
             else:
@@ -92,8 +117,13 @@ def resolve_env(bp, svc, db_url, redis_url, generated):
     return out
 
 
+def compose_escape(value):
+    # Compose interpolates $VAR in the file; the container must see it literally.
+    return value.replace("$", "$$")
+
+
 def compose(path):
-    bp = load(path)
+    bp = load(path, runtimes=("image", "docker"))
     dbs = bp.get("databases", [])
     if len(dbs) != 1:
         sys.exit("expected exactly one database")
@@ -102,6 +132,7 @@ def compose(path):
     db_url = f"postgres://{db['user']}:{pw}@postgres:5432/{db['databaseName']}"
     redis_url = "redis://redis:6379"
     generated = {}
+    host_of = lambda name: name + COMPOSE_NAME_SUFFIX  # noqa: E731
     services = {
         "postgres": {
             "image": f"postgres:{db['postgresMajorVersion']}",
@@ -116,21 +147,33 @@ def compose(path):
     volumes = {}
     for svc in image_services(bp):
         name = svc["name"]
+        env = resolve_env(bp, svc, db_url, redis_url, generated, host_of)
         c = {
-            "image": svc["image"]["url"],
-            "environment": resolve_env(bp, svc, db_url, redis_url, generated),
+            "environment": {k: compose_escape(v) for k, v in env.items()},
             "depends_on": {"postgres": {"condition": "service_healthy"}, "redis": {"condition": "service_healthy"}},
         }
+        if svc["runtime"] == "docker":
+            # Render builds the deploy branch's Dockerfile; build it from the
+            # directory holding this render.yaml (the branch's files).
+            c["build"] = {"context": os.path.dirname(os.path.abspath(path))}
+        else:
+            c["image"] = svc["image"]["url"]
         if "dockerCommand" in svc:
             # Render's dockerCommand replaces CMD; the image ENTRYPOINT still runs.
-            c["command"] = svc["dockerCommand"].split()
+            c["command"] = [compose_escape(a) for a in shlex.split(svc["dockerCommand"])]
+        if os.environ.get("E2E_MEM_LIMIT"):
+            # Mirror a Render instance size, e.g. 512m for the default new
+            # service. Render doesn't swap, so neither may the container.
+            # Applies to every app service, whatever plan the Blueprint sets.
+            c["mem_limit"] = c["memswap_limit"] = os.environ["E2E_MEM_LIMIT"]
         if "disk" in svc:
             volumes[svc["disk"]["name"]] = {}
             c["volumes"] = [f"{svc['disk']['name']}:{svc['disk']['mountPath']}"]
         if svc["type"] == "web":
             port = c["environment"].setdefault("PORT", "10000")
-            c["ports"] = [f"127.0.0.1:${{E2E_WEB_PORT:-3000}}:{port}"]
-        services[name] = c
+            if name == "sure-web":
+                c["ports"] = [f"127.0.0.1:${{E2E_WEB_PORT:-3000}}:{port}"]
+        services[host_of(name)] = c
     doc = {"services": services}
     if volumes:
         doc["volumes"] = volumes

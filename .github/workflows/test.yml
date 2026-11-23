@@ -38,13 +38,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # First slice: no AI on stable, latest and nightly. Add the other
-        # deploy branches as their slices land.
+        # No AI on stable, latest and nightly, and External AI on stable.
+        # Add the other deploy branches as their slices land.
         include:
           - branch: sure-no-ai
           - branch: sure-no-ai-latest
           - branch: sure-no-ai
             image: ghcr.io/we-promise/sure:nightly
+          - branch: sure-external-ai
     steps:
       - uses: actions/checkout@v4
       - name: Fetch deploy branches

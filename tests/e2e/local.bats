@@ -18,6 +18,11 @@
 #                (Render's default for new services); unset means no cap
 #   E2E_IMAGE    optional Sure image to run instead of the branch's pin, e.g.
 #                ghcr.io/we-promise/sure@sha256:... for a nightly build
+#   E2E_OPENAI_STUB=1     add a test OpenAI-compatible endpoint to the compose
+#                         project (automatic for the sure-simple-ai branches)
+#   E2E_OPENAI_ACCESS_TOKEN / E2E_OPENAI_MODEL
+#                the token/model the stub requires and the services send
+#                (defaults: e2e-openai-token / e2e-test-model)
 #
 # Needs docker (with compose v2), curl, python3 + PyYAML, and the deploy
 # branch fetched into refs/remotes/origin.
@@ -56,6 +61,14 @@ setup_file() {
     # The demo user, created by the demo data test below.
     export E2E_PROMPT_MCP_USER_EMAIL="${E2E_PROMPT_MCP_USER_EMAIL:-user@example.com}"
   fi
+  if is_simple_ai; then
+    # Simple AI keeps OpenAI settings out of the Blueprint (Render environment
+    # groups supply them), so the harness runs its own test model endpoint and
+    # points both services at it. See tests/lib/stubs/openai_stub.py.
+    export E2E_OPENAI_STUB=1
+    export E2E_OPENAI_ACCESS_TOKEN="${E2E_OPENAI_ACCESS_TOKEN:-e2e-openai-token}"
+    export E2E_OPENAI_MODEL="${E2E_OPENAI_MODEL:-e2e-test-model}"
+  fi
   if [ -n "${E2E_IMAGE:-}" ]; then
     sed -i -E "s#(url: )ghcr\.io/we-promise/sure[:@][^[:space:]]+#\1${E2E_IMAGE}#" "${E2E_DIR}/render.yaml"
   fi
@@ -87,6 +100,7 @@ teardown_file() {
 redis() { $DC exec -T redis redis-cli "$@"; }
 
 is_external_ai() { [ "$(flavor_of "$E2E_BRANCH")" = sure-external-ai ]; }
+is_simple_ai() { [ "$(flavor_of "$E2E_BRANCH")" = sure-simple-ai ]; }
 
 # An env var as AlphaClaw's main process sees it (its entrypoint builds
 # values that `docker compose exec` would not inherit).
@@ -140,6 +154,30 @@ end'
 
 # The end of sure_chat's full output, for failure messages.
 sure_chat_log() { tail -n 25 "${BATS_TEST_TMPDIR}/sure_chat-$1.log" 2>/dev/null; }
+
+# Sends one chat message through Sure's builtin OpenAI provider, in the
+# environment the service's start command builds, and prints the reply or the
+# provider's error. $2 overrides the configured access token.
+simple_chat() {
+  local ruby='provider = Provider::Registry.openai
+abort "E2E_RESULT not configured" unless provider
+response = provider.chat_response("ping", model: provider.default_model)
+if response.success?
+  puts "E2E_RESULT ok: #{response.data.messages.map(&:output_text).join}"
+else
+  puts "E2E_RESULT #{response.error.message}"
+end'
+  local prefix log="${BATS_TEST_TMPDIR}/simple_chat-$1.log"
+  prefix="$(command_prefix "$1")" || return 1
+  # A one-off container with the service's configuration, so a second Rails
+  # process doesn't share (or, under E2E_MEM_LIMIT, skew) the service's memory.
+  $DC run --rm --no-deps -T -e POSTHOG_FEEDBACK_ENABLED=false -e OPENAI_ACCESS_TOKEN="${2:-${E2E_OPENAI_ACCESS_TOKEN}}" --entrypoint sh "$1-e2e" \
+    -c "${prefix}exec ./bin/rails runner \"\$1\"" _ "$ruby" > "$log" 2>&1
+  sed -n 's/^E2E_RESULT //p' "$log"
+}
+
+# The end of simple_chat's full output, for failure messages.
+simple_chat_log() { tail -n 25 "${BATS_TEST_TMPDIR}/simple_chat-$1.log" 2>/dev/null; }
 
 @test "compose runs the image tag the branch pins (or E2E_IMAGE)" {
   want="${E2E_IMAGE:-ghcr.io/we-promise/sure:$(tag_of "$E2E_BRANCH")}"
@@ -270,6 +308,41 @@ if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-external-ai* ]]; then
   ' "$url" "$(proc1_env "$ALPHACLAW" REMOTE_MCP_API_TOKEN)"
   echo "$output"
   [ "$status" -eq 0 ]
+}
+
+fi
+
+# Registered only for the simple AI profile, so other profiles don't show skips.
+if [[ "${E2E_BRANCH:-sure-no-ai}" == sure-simple-ai* ]]; then
+
+@test "simple AI: Sure's OpenAI provider reaches the test model endpoint with the shared token, from web and worker" {
+  # Chat replies run in Sidekiq, so the worker's start command must build the
+  # same configuration as web's.
+  for key in OPENAI_ACCESS_TOKEN OPENAI_URI_BASE OPENAI_MODEL; do
+    [ "$(command_env sure-web "$key")" = "$(command_env sure-worker "$key")" ] || { echo "web and worker build different $key"; false; }
+  done
+  url="$(command_env sure-web OPENAI_URI_BASE)/chat/completions"
+  deadline=$((SECONDS + 300))
+  until [ "$(simple_chat sure-web)" = "ok: pong from ${E2E_OPENAI_MODEL}" ]; do
+    (( SECONDS < deadline )) || { echo "sure-web first chat:"; simple_chat_log sure-web; $DC logs --tail 40 openai-stub; false; }
+    sleep 5
+  done
+  # With the wrong token the stub rejects the call, so a passing chat proves
+  # the configured token is what each service sends.
+  run simple_chat sure-web wrong-token
+  [[ "$output" == *"401"* ]] || { echo "wrong token: $output"; simple_chat_log sure-web; false; }
+  for svc in sure-web sure-worker; do
+    run simple_chat "$svc"
+    [ "$output" = "ok: pong from ${E2E_OPENAI_MODEL}" ] || { echo "$svc: $output"; simple_chat_log "$svc"; false; }
+  done
+  # The stub's own answers behind those statuses, so another 401 can't pass.
+  stub_chat() { $DC exec -T "$WEB" curl -s -m 20 -H 'Content-Type: application/json' "$@" -d "{\"model\":\"$E2E_OPENAI_MODEL\",\"messages\":[]}" "$url"; }
+  run stub_chat
+  [[ "$output" == *"Incorrect API key"* ]] || { echo "no token: $output"; false; }
+  run stub_chat -H "Authorization: Bearer wrong-token"
+  [[ "$output" == *"Incorrect API key"* ]] || { echo "wrong token: $output"; false; }
+  run stub_chat -H "Authorization: Bearer ${E2E_OPENAI_ACCESS_TOKEN}"
+  [[ "$output" == *"\"content\":\"pong from ${E2E_OPENAI_MODEL}\""* ]] || { echo "shared token: $output"; false; }
 }
 
 fi

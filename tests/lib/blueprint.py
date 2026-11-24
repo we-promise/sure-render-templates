@@ -174,6 +174,36 @@ def compose(path):
             if name == "sure-web":
                 c["ports"] = [f"127.0.0.1:${{E2E_WEB_PORT:-3000}}:{port}"]
         services[host_of(name)] = c
+    if os.environ.get("E2E_OPENAI_STUB") == "1":
+        # Test-only OpenAI-compatible endpoint (never in render-plan output or
+        # a Blueprint). Simple AI keeps its OpenAI settings out of the
+        # Blueprint, so the local e2e supplies its own: this stub plus the
+        # OPENAI_* env a Render environment group would carry, on sure-web and
+        # sure-worker alike. The stub requires the token it is configured
+        # with, so a miswired service fails the way it would against a real
+        # provider. See tests/lib/stubs/openai_stub.py.
+        token = os.environ.get("E2E_OPENAI_ACCESS_TOKEN", "e2e-openai-token")
+        model = os.environ.get("E2E_OPENAI_MODEL", "e2e-test-model")
+        port = os.environ.get("E2E_OPENAI_STUB_PORT", "8100")
+        stub = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stubs", "openai_stub.py")
+        services["openai-stub"] = {
+            "image": "python:3-alpine",
+            "command": ["python3", "/stub.py"],
+            "environment": {"STUB_TOKEN": compose_escape(token), "STUB_MODEL": model, "PORT": port},
+            "volumes": [f"{stub}:/stub.py:ro"],
+            "healthcheck": {
+                "test": ["CMD-SHELL", f"wget -q -O /dev/null http://127.0.0.1:{port}/healthz"],
+                "interval": "2s",
+                "retries": 30,
+            },
+        }
+        for svc in image_services(bp):
+            if svc["name"] in ("sure-web", "sure-worker"):
+                services[host_of(svc["name"])]["environment"].update({
+                    "OPENAI_ACCESS_TOKEN": compose_escape(token),
+                    "OPENAI_URI_BASE": f"http://openai-stub:{port}/v1",
+                    "OPENAI_MODEL": model,
+                })
     doc = {"services": services}
     if volumes:
         doc["volumes"] = volumes

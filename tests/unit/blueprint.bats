@@ -155,3 +155,70 @@ PY
   echo "$output"
   [ "$status" -eq 0 ]
 }
+
+@test "compose adds the OpenAI test endpoint only for E2E_OPENAI_STUB=1" {
+  bp="${REPO_ROOT}/branches/sure-simple-ai/render.yaml"
+  run python3 - "$REPO_ROOT" "$bp" <<'PY'
+import os, subprocess, sys, yaml
+bp = sys.argv[2]
+env = {k: v for k, v in os.environ.items() if k != "E2E_OPENAI_STUB"}
+plain = yaml.safe_load(subprocess.run(
+    [sys.executable, os.path.join(sys.argv[1], "tests/lib/blueprint.py"), "compose", bp],
+    check=True, capture_output=True, text=True, env=env).stdout)
+assert "openai-stub" not in plain["services"]
+web = plain["services"]["sure-web-e2e"]["environment"]
+assert not [k for k in web if k.startswith("OPENAI_")], web
+stubbed = yaml.safe_load(subprocess.run(
+    [sys.executable, os.path.join(sys.argv[1], "tests/lib/blueprint.py"), "compose", bp],
+    check=True, capture_output=True, text=True,
+    env={**env, "E2E_OPENAI_STUB": "1", "E2E_OPENAI_ACCESS_TOKEN": "tok", "E2E_OPENAI_MODEL": "mod"}).stdout)
+stub = stubbed["services"]["openai-stub"]
+assert stub["environment"]["STUB_TOKEN"] == "tok"
+assert stub["environment"]["STUB_MODEL"] == "mod"
+port = stub["environment"]["PORT"]
+for svc in ("sure-web-e2e", "sure-worker-e2e"):
+    service_env = stubbed["services"][svc]["environment"]
+    assert service_env["OPENAI_ACCESS_TOKEN"] == "tok"
+    assert service_env["OPENAI_MODEL"] == "mod"
+    assert service_env["OPENAI_URI_BASE"] == f"http://openai-stub:{port}/v1"
+PY
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
+@test "compose never puts the OpenAI test endpoint in a Render plan" {
+  run python3 - "$REPO_ROOT" <<'PY'
+import os, subprocess, sys
+env = {**os.environ, "E2E_OPENAI_STUB": "1"}
+result = subprocess.run(
+    [sys.executable, os.path.join(sys.argv[1], "tests/lib/blueprint.py"), "render-plan",
+     os.path.join(sys.argv[1], "branches/sure-simple-ai/render.yaml"), "t0"],
+    capture_output=True, text=True, env=env)
+assert result.returncode == 0, result.stderr
+assert "openai-stub" not in result.stdout
+assert "OPENAI_" not in result.stdout
+PY
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
+@test "the OpenAI test endpoint answers chat completions and rejects bad tokens" {
+  port=$(( (RANDOM % 20000) + 20000 ))
+  STUB_TOKEN=tok STUB_MODEL=mod PORT=$port python3 "${REPO_ROOT}/tests/lib/stubs/openai_stub.py" &
+  pid=$!
+  trap 'kill $pid 2>/dev/null' EXIT
+  for _ in $(seq 1 50); do
+    curl -fsS "http://127.0.0.1:$port/healthz" >/dev/null 2>&1 && break
+    sleep 0.2
+  done
+  body='{"model":"mod","messages":[{"role":"user","content":"ping"}]}'
+  run curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$port/v1/chat/completions" -H 'Content-Type: application/json' -d "$body"
+  [ "$output" = 401 ]
+  run curl -s -X POST "http://127.0.0.1:$port/v1/chat/completions" -H 'Content-Type: application/json' -H 'Authorization: Bearer wrong' -d "$body"
+  [[ "$output" == *"Incorrect API key"* ]]
+  run curl -s -X POST "http://127.0.0.1:$port/v1/chat/completions" -H 'Content-Type: application/json' -H 'Authorization: Bearer tok' -d "$body"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"content":"pong from mod"'* ]]
+  run curl -s -X POST "http://127.0.0.1:$port/v1/embeddings" -H 'Content-Type: application/json' -H 'Authorization: Bearer tok' -d '{"model":"mod","input":"x"}'
+  [[ "$output" == *'"embedding":'* ]]
+  kill $pid 2>/dev/null
+  trap - EXIT
+}

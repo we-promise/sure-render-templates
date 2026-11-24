@@ -140,7 +140,7 @@ PY
 }
 
 @test "compose caps app services without swap only when E2E_MEM_LIMIT is set" {
-  python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${REPO_ROOT}/render.yaml" > "$WORK/uncapped.yaml"
+  env -u E2E_MEM_LIMIT python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${REPO_ROOT}/render.yaml" > "$WORK/uncapped.yaml"
   E2E_MEM_LIMIT=512m python3 "${REPO_ROOT}/tests/lib/blueprint.py" compose "${REPO_ROOT}/render.yaml" > "$WORK/capped.yaml"
   run python3 - "$WORK/uncapped.yaml" "$WORK/capped.yaml" <<'PY'
 import sys, yaml

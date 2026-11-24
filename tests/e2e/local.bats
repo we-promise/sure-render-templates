@@ -169,9 +169,13 @@ else
 end'
   local prefix log="${BATS_TEST_TMPDIR}/simple_chat-$1.log"
   prefix="$(command_prefix "$1")" || return 1
+  # The override is only for the wrong-token negative check; the positive
+  # checks must run with the service's own configured token.
+  local override=()
+  [ -n "${2:-}" ] && override=(-e "OPENAI_ACCESS_TOKEN=$2")
   # A one-off container with the service's configuration, so a second Rails
   # process doesn't share (or, under E2E_MEM_LIMIT, skew) the service's memory.
-  $DC run --rm --no-deps -T -e POSTHOG_FEEDBACK_ENABLED=false -e OPENAI_ACCESS_TOKEN="${2:-${E2E_OPENAI_ACCESS_TOKEN}}" --entrypoint sh "$1-e2e" \
+  $DC run --rm --no-deps -T -e POSTHOG_FEEDBACK_ENABLED=false "${override[@]}" --entrypoint sh "$1-e2e" \
     -c "${prefix}exec ./bin/rails runner \"\$1\"" _ "$ruby" > "$log" 2>&1
   sed -n 's/^E2E_RESULT //p' "$log"
 }

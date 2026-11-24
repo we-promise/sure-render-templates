@@ -161,7 +161,7 @@ sure_chat_log() { tail -n 25 "${BATS_TEST_TMPDIR}/sure_chat-$1.log" 2>/dev/null;
 simple_chat() {
   local ruby='provider = Provider::Registry.get_provider(:openai)
 abort "E2E_RESULT not configured" unless provider
-response = provider.chat_response("ping", model: provider.default_model)
+response = provider.chat_response("ping", model: ENV["OPENAI_MODEL"].presence || Provider::Openai.effective_model)
 if response.success?
   puts "E2E_RESULT ok: #{response.data.messages.map(&:output_text).join}"
 else

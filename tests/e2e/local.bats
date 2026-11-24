@@ -159,7 +159,7 @@ sure_chat_log() { tail -n 25 "${BATS_TEST_TMPDIR}/sure_chat-$1.log" 2>/dev/null;
 # environment the service's start command builds, and prints the reply or the
 # provider's error. $2 overrides the configured access token.
 simple_chat() {
-  local ruby='provider = Provider::Registry.openai
+  local ruby='provider = Provider::Registry.get_provider(:openai)
 abort "E2E_RESULT not configured" unless provider
 response = provider.chat_response("ping", model: provider.default_model)
 if response.success?

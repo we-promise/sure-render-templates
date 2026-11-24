@@ -38,14 +38,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # No AI on stable, latest and nightly, and External AI on stable.
-        # Add the other deploy branches as their slices land.
+        # No AI on stable, latest and nightly; External AI and Simple AI on
+        # stable and latest. Simple AI runs against the harness's test model
+        # endpoint, so no OpenAI key is needed.
         include:
           - branch: sure-no-ai
           - branch: sure-no-ai-latest
           - branch: sure-no-ai
             image: ghcr.io/we-promise/sure:nightly
           - branch: sure-external-ai
+          - branch: sure-external-ai-latest
+          - branch: sure-simple-ai
+          - branch: sure-simple-ai-latest
     steps:
       - uses: actions/checkout@v4
       - name: Fetch deploy branches

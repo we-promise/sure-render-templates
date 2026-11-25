@@ -1,0 +1,82 @@
+name: Persistent sample app browser test
+# Manual only. Never provisions, deploys, seeds, changes global settings or deletes.
+on:
+  workflow_dispatch:
+    inputs:
+      sample_url:
+        description: Approved Sure app Render HTTPS origin
+        required: true
+      image_digest:
+        description: Expected immutable release digest (sha256:...)
+        required: true
+      web_service_id:
+        description: Sure app web service ID
+        required: true
+      worker_service_id:
+        description: Sure app worker service ID
+        required: true
+      owner_id:
+        description: Sure workspace ID (no repository variable changes)
+        required: true
+      environment_id:
+        description: Sure app environment ID
+        required: true
+      admin_established:
+        description: The intended administrator already exists
+        type: boolean
+        required: true
+        default: false
+      confirm_sample_data:
+        description: Create isolated synthetic records and incur real AI usage
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: persistent-sample-${{ inputs.web_service_id }}
+  cancel-in-progress: false
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      E2E_SAMPLE_URL: ${{ inputs.sample_url }}
+      E2E_EXPECTED_IMAGE_DIGEST: ${{ inputs.image_digest }}
+      E2E_WEB_SERVICE_ID: ${{ inputs.web_service_id }}
+      E2E_WORKER_SERVICE_ID: ${{ inputs.worker_service_id }}
+      E2E_RENDER_OWNER_ID: ${{ inputs.owner_id }}
+      E2E_RENDER_ENVIRONMENT_ID: ${{ inputs.environment_id }}
+      E2E_ADMIN_ESTABLISHED: ${{ inputs.admin_established && 'yes' || 'no' }}
+      E2E_CONFIRM_SAMPLE_DATA: ${{ inputs.confirm_sample_data && 'yes' || 'no' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require explicit sample-data scope
+        run: test "$E2E_ADMIN_ESTABLISHED" = yes && test "$E2E_CONFIRM_SAMPLE_DATA" = yes
+      - name: Verify live web and worker release identity
+        id: identity
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: python3 tests/render/verify-live-image.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/browser/package-lock.json
+      - run: npm --prefix tests/browser ci
+      - run: npx --prefix tests/browser playwright install --with-deps chromium
+      - run: npm --prefix tests/browser test
+      - name: Recheck live image identity after scenario
+        if: always() && steps.identity.outcome == 'success'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: python3 tests/render/verify-live-image.py
+      - name: Keep synthetic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-app-screenshots
+          path: tests/browser/test-results/**/*.png
+          if-no-files-found: ignore
+          retention-days: 1
+      # Traces may contain synthetic session cookies: keep local; never publish them.
